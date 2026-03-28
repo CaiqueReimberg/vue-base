@@ -28,5 +28,6 @@ coverage
 *.sw?
 
 *.lock
+pnpm-lock.yaml
 
 *.tsbuildinfo
