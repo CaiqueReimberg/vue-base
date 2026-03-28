@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import DashboardHeader from '@/components/dashboard/DashboardHeader.vue'
 import CrudFormLayout from '@/components/crud/CrudFormLayout.vue'
 import { useAccountsStore } from '@/stores/accounts/accounts.store'
 import { useToastStore } from '@/stores/toast/toast.store'
@@ -82,7 +81,6 @@ function cancel() {
 
 <template>
   <div class="crud-page">
-    <DashboardHeader compact />
     <CrudFormLayout
       :title="isEdit ? 'Editar conta' : 'Nova conta'"
       :subtitle="isEdit ? 'Altere os dados da conta.' : 'Preencha os dados da conta bancária.'"

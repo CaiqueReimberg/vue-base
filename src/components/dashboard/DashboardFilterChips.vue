@@ -1,9 +1,20 @@
 <script setup lang="ts">
+import { useDashboardStore } from '@/stores/dashboard/dashboard.store'
+import { storeToRefs } from 'pinia'
+
+const store = useDashboardStore()
+const { activeFilter } = storeToRefs(store)
+
 const filters = [
   { id: 'expense', label: 'Gasto', icon: 'chart' },
   { id: 'income', label: 'Entrada' },
   { id: 'account', label: 'Conta', icon: 'doc' },
-]
+] as const
+
+async function selectFilter(filterId: 'expense' | 'income' | 'account') {
+  store.setActiveFilter(filterId)
+  await store.fetchSummary()
+}
 </script>
 
 <template>
@@ -13,7 +24,8 @@ const filters = [
       :key="f.id"
       type="button"
       class="chip"
-      :class="{ 'chip--active': f.id === 'expense' }"
+      :class="{ 'chip--active': f.id === activeFilter }"
+      @click="selectFilter(f.id)"
     >
       <svg v-if="f.icon === 'chart'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M3 3v18h18"/>

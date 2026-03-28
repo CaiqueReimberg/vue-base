@@ -2,14 +2,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import DashboardHeader from '@/components/dashboard/DashboardHeader.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import CrudListPage from '@/components/crud/CrudListPage.vue'
 import CrudListItem from '@/components/crud/CrudListItem.vue'
 import { useCardsStore } from '@/stores/cards/cards.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { Card } from '@/types/card'
-import { PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { ClipboardDocumentListIcon, PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const store = useCardsStore()
@@ -39,6 +38,10 @@ function goToNew() {
 
 function goToEdit(card: Card) {
   router.push({ name: 'card-edit', params: { id: card.id } })
+}
+
+function goToInvoices(card: Card) {
+  router.push({ name: 'card-invoices', params: { id: card.id } })
 }
 
 function openConfirmRemove(card: Card) {
@@ -76,7 +79,6 @@ async function confirmRemove() {
       @close="closeConfirm"
       @confirm="confirmRemove"
     />
-    <DashboardHeader compact />
     <CrudListPage
       title="Cartões"
       subtitle="Cadastro de cartões de crédito"
@@ -101,6 +103,15 @@ async function confirmRemove() {
             Vence dia {{ (item as Card).dueDay }}
           </p>
           <template #actions>
+            <button
+              type="button"
+              class="crud-icon-btn"
+              title="Faturas"
+              aria-label="Ver faturas"
+              @click="goToInvoices(item as Card)"
+            >
+              <ClipboardDocumentListIcon class="h-5 w-5" />
+            </button>
             <button
               type="button"
               class="crud-icon-btn"

@@ -2,7 +2,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import DashboardHeader from '@/components/dashboard/DashboardHeader.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import CrudListPage from '@/components/crud/CrudListPage.vue'
 import CrudListItem from '@/components/crud/CrudListItem.vue'
@@ -76,7 +75,6 @@ async function confirmRemove() {
       @close="closeConfirm"
       @confirm="confirmRemove"
     />
-    <DashboardHeader compact />
     <CrudListPage
       title="Contas bancárias"
       subtitle="Cadastro de contas corrente e poupança"

@@ -3,13 +3,13 @@ import { useDashboardStore } from '@/stores/dashboard/dashboard.store'
 import { storeToRefs } from 'pinia'
 
 const store = useDashboardStore()
-const { expenses, formatCurrency } = storeToRefs(store)
+const { expenses, formatCurrency, listTitle } = storeToRefs(store)
 </script>
 
 <template>
   <section class="latest-expenses">
     <div class="section-header">
-      <h2 class="section-title">Últimos gastos</h2>
+      <h2 class="section-title">{{ listTitle }}</h2>
       <router-link to="/movements" class="see-all">Ver todos</router-link>
     </div>
     <ul class="expense-list">

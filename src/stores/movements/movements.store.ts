@@ -1,136 +1,49 @@
 import { defineStore } from 'pinia'
+import { recurringApi } from '@/api/recurring.api'
+import { transactionsApi } from '@/api/transactions.api'
+import type {
+  Transaction,
+  TransactionCreateInput,
+  TransactionType,
+  TransactionUpdateInput,
+} from '@/types/transaction'
 
-export type MovementType = 'expense' | 'income' | 'adjustment'
-
-export interface Movement {
-  id: string
-  type: MovementType
-  description: string
-  amount: number
-  author: string
-  account: string
-  origin: string
-  createdAt: string
+function endDateAfterMonths(startYmd: string, months: number): string {
+  const d = new Date(`${startYmd}T12:00:00`)
+  d.setMonth(d.getMonth() + months)
+  return d.toISOString().slice(0, 10)
 }
+
+export type MovementType = TransactionType
+export type Movement = Transaction
 
 export interface MovementsState {
   movements: Movement[]
+  loading: boolean
+  error: string | null
   searchQuery: string
   filterType: MovementType | 'all'
-  filterAccount: string
-  filterOrigin: string
+  filterAccountId: string | 'all'
+  filterCardId: string | 'all'
+  page: number
+  limit: number
+  total: number
+  totalPages: number
 }
-
-const MOCK_MOVEMENTS: Movement[] = [
-  {
-    id: '1',
-    type: 'expense',
-    description: 'Mercado - frutas e legumes',
-    amount: 45.9,
-    author: 'Beatriz',
-    account: 'Nubank',
-    origin: 'WhatsApp',
-    createdAt: 'há 12 min',
-  },
-  {
-    id: '2',
-    type: 'expense',
-    description: 'Jantar restaurante',
-    amount: 150,
-    author: 'Bruno',
-    account: 'Itaú',
-    origin: 'Manual',
-    createdAt: 'ontem',
-  },
-  {
-    id: '3',
-    type: 'income',
-    description: 'Salário',
-    amount: 5000,
-    author: 'Beatriz',
-    account: 'Nubank',
-    origin: 'Manual',
-    createdAt: 'ontem',
-  },
-  {
-    id: '4',
-    type: 'adjustment',
-    description: 'Ajuste de saldo',
-    amount: 20,
-    author: 'Bruno',
-    account: 'Itaú',
-    origin: 'Manual',
-    createdAt: 'há 2 dias',
-  },
-  {
-    id: '5',
-    type: 'expense',
-    description: 'Farmácia',
-    amount: 89.5,
-    author: 'Beatriz',
-    account: 'Nubank',
-    origin: 'WhatsApp',
-    createdAt: 'há 3 dias',
-  },
-  {
-    id: '6',
-    type: 'income',
-    description: 'Freelance',
-    amount: 1200,
-    author: 'Bruno',
-    account: 'Itaú',
-    origin: 'Manual',
-    createdAt: 'há 4 dias',
-  },
-  {
-    id: '7',
-    type: 'expense',
-    description: 'Conta de luz',
-    amount: 320,
-    author: 'Beatriz',
-    account: 'Nubank',
-    origin: 'Manual',
-    createdAt: 'há 5 dias',
-  },
-  {
-    id: '8',
-    type: 'expense',
-    description: 'Supermercado',
-    amount: 280.4,
-    author: 'Bruno',
-    account: 'Itaú',
-    origin: 'WhatsApp',
-    createdAt: 'há 6 dias',
-  },
-  {
-    id: '9',
-    type: 'income',
-    description: 'Reembolso',
-    amount: 150,
-    author: 'Beatriz',
-    account: 'Nubank',
-    origin: 'Manual',
-    createdAt: 'há 1 semana',
-  },
-  {
-    id: '10',
-    type: 'adjustment',
-    description: 'Correção',
-    amount: -15,
-    author: 'Bruno',
-    account: 'Itaú',
-    origin: 'Manual',
-    createdAt: 'há 1 semana',
-  },
-]
 
 export const useMovementsStore = defineStore('movements', {
   state: (): MovementsState => ({
-    movements: MOCK_MOVEMENTS,
+    movements: [],
+    loading: false,
+    error: null,
     searchQuery: '',
     filterType: 'all',
-    filterAccount: 'all',
-    filterOrigin: 'all',
+    filterAccountId: 'all',
+    filterCardId: 'all',
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 1,
   }),
 
   getters: {
@@ -142,23 +55,11 @@ export const useMovementsStore = defineStore('movements', {
         list = list.filter((m) => m.description.toLowerCase().includes(q))
       }
 
-      if (state.filterType !== 'all') {
-        list = list.filter((m) => m.type === state.filterType)
-      }
-
-      if (state.filterAccount !== 'all') {
-        list = list.filter((m) => m.account === state.filterAccount)
-      }
-
-      if (state.filterOrigin !== 'all') {
-        list = list.filter((m) => m.origin === state.filterOrigin)
-      }
-
       return list
     },
 
     movementsCount(): number {
-      return this.filteredMovements.length
+      return this.searchQuery.trim() ? this.filteredMovements.length : this.total
     },
 
     formatCurrency() {
@@ -174,7 +75,6 @@ export const useMovementsStore = defineStore('movements', {
         const labels: Record<MovementType, string> = {
           expense: 'Gasto',
           income: 'Entrada',
-          adjustment: 'Ajuste',
         }
         return labels[type]
       }
@@ -188,11 +88,140 @@ export const useMovementsStore = defineStore('movements', {
     setFilterType(value: MovementType | 'all') {
       this.filterType = value
     },
-    setFilterAccount(value: string) {
-      this.filterAccount = value
+    setFilterAccountId(value: string | 'all') {
+      this.filterAccountId = value
     },
-    setFilterOrigin(value: string) {
-      this.filterOrigin = value
+    setFilterCardId(value: string | 'all') {
+      this.filterCardId = value
+    },
+    setPage(value: number) {
+      this.page = value
+    },
+    async fetchAll() {
+      this.loading = true
+      this.error = null
+      try {
+        const accountId =
+          this.filterAccountId !== 'all' && this.filterCardId === 'all'
+            ? this.filterAccountId
+            : undefined
+        const cardId =
+          this.filterCardId !== 'all' && this.filterAccountId === 'all'
+            ? this.filterCardId
+            : undefined
+
+        const response = await transactionsApi.list({
+          type: this.filterType === 'all' ? undefined : this.filterType,
+          accountId,
+          cardId,
+          page: this.page,
+          limit: this.limit,
+        })
+        this.movements = response.data
+        this.total = response.pagination.total
+        this.totalPages = response.pagination.totalPages || 1
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : 'Erro ao carregar movimentações'
+        throw e
+      } finally {
+        this.loading = false
+      }
+    },
+    async create(
+      data: TransactionCreateInput & {
+        type: MovementType
+        createRecurringFromCard?: boolean
+        recurringMonths?: number
+        installmentTotal?: number
+      },
+    ) {
+      this.loading = true
+      this.error = null
+      try {
+        const {
+          type,
+          createRecurringFromCard,
+          recurringMonths,
+          installmentTotal,
+          ...payload
+        } = data
+        const incomePayload: TransactionCreateInput = {
+          amount: payload.amount,
+          description: payload.description,
+          occurredAt: payload.occurredAt,
+          accountId: payload.accountId,
+        }
+        if (type === 'expense') {
+          if (installmentTotal != null && installmentTotal >= 2) {
+            await transactionsApi.createInstallmentExpense({
+              amount: payload.amount,
+              description: payload.description,
+              occurredAt: payload.occurredAt,
+              accountId: payload.accountId,
+              cardId: payload.cardId,
+              installmentTotal,
+            })
+          } else {
+            await transactionsApi.createExpense(payload)
+            if (createRecurringFromCard && payload.cardId) {
+              const startDate = payload.occurredAt.slice(0, 10)
+              const endDate =
+                recurringMonths != null && recurringMonths > 0
+                  ? endDateAfterMonths(startDate, recurringMonths)
+                  : undefined
+              await recurringApi.create({
+                name: payload.description.trim().slice(0, 120) || 'Recorrente',
+                kind: 'fixed_bill',
+                transactionType: 'expense',
+                frequency: 'monthly',
+                amount: payload.amount,
+                description: payload.description,
+                startDate,
+                endDate,
+                cardId: payload.cardId,
+              })
+            }
+          }
+        } else {
+          await transactionsApi.createIncome(incomePayload)
+        }
+        this.page = 1
+        await this.fetchAll()
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : 'Erro ao criar movimentação'
+        throw e
+      } finally {
+        this.loading = false
+      }
+    },
+    async update(id: string, data: TransactionUpdateInput) {
+      this.loading = true
+      this.error = null
+      try {
+        await transactionsApi.update(id, data)
+        await this.fetchAll()
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : 'Erro ao atualizar movimentação'
+        throw e
+      } finally {
+        this.loading = false
+      }
+    },
+    async remove(id: string) {
+      this.loading = true
+      this.error = null
+      try {
+        await transactionsApi.delete(id)
+        if (this.movements.length === 1 && this.page > 1) {
+          this.page -= 1
+        }
+        await this.fetchAll()
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : 'Erro ao excluir movimentação'
+        throw e
+      } finally {
+        this.loading = false
+      }
     },
   },
 })

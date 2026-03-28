@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import DashboardHeader from '@/components/dashboard/DashboardHeader.vue'
+import { onMounted } from 'vue'
+import DashboardHomeBanner from '@/components/dashboard/DashboardHomeBanner.vue'
 import DashboardOverviewCard from '@/components/dashboard/DashboardOverviewCard.vue'
 import DashboardIncomeCards from '@/components/dashboard/DashboardIncomeCards.vue'
 import DashboardFilterChips from '@/components/dashboard/DashboardFilterChips.vue'
 import DashboardAlertCard from '@/components/dashboard/DashboardAlertCard.vue'
 import DashboardWhatsAppCard from '@/components/dashboard/DashboardWhatsAppCard.vue'
 import DashboardLatestExpenses from '@/components/dashboard/DashboardLatestExpenses.vue'
+import { useDashboardStore } from '@/stores/dashboard/dashboard.store'
+import { useToastStore } from '@/stores/toast/toast.store'
+
+const dashboardStore = useDashboardStore()
+const toastStore = useToastStore()
+
+onMounted(async () => {
+  await dashboardStore.fetchSummary()
+  if (dashboardStore.error) {
+    toastStore.error(dashboardStore.error)
+  }
+})
 </script>
 
 <template>
   <div class="dashboard">
-    <DashboardHeader />
+    <DashboardHomeBanner />
     <DashboardOverviewCard />
     <DashboardIncomeCards />
     <DashboardFilterChips />

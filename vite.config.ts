@@ -3,14 +3,12 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
-import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
     vueJsx(),
-    vueDevTools(),
   ],
   server: {
     proxy: {
@@ -23,6 +21,18 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/accounts': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/transactions': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/recurring': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+      '/budgets': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },

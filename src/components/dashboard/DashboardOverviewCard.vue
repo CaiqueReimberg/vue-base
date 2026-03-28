@@ -4,10 +4,37 @@ import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 
 const store = useDashboardStore()
-const { budget, spent, remainingBalance, budgetUsedPercent, formatCurrency } = storeToRefs(store)
+const {
+  budget,
+  totalExpenses,
+  remainingBalance,
+  budgetRingPercent,
+  budgetUsedPercentRaw,
+  hasMonthlyBudget,
+  budgetExceeded,
+  formatCurrency,
+  secondarySpendLabel,
+} = storeToRefs(store)
 
 const circumference = 2 * Math.PI * 45
-const strokeDashoffset = computed(() => circumference - (budgetUsedPercent.value / 100) * circumference)
+const strokeDashoffset = computed(
+  () => circumference - (budgetRingPercent.value / 100) * circumference,
+)
+
+const centerLabel = computed(() => {
+  if (!hasMonthlyBudget.value) {
+    return 'Sem meta'
+  }
+  const raw = budgetUsedPercentRaw.value
+  return `${raw}%`
+})
+
+const sublineLabel = computed(() => {
+  if (!hasMonthlyBudget.value) {
+    return 'Cadastre orçamentos mensais'
+  }
+  return 'do orçamento'
+})
 </script>
 
 <template>
@@ -25,6 +52,7 @@ const strokeDashoffset = computed(() => circumference - (budgetUsedPercent.value
           />
           <circle
             class="progress-ring-fill"
+            :class="{ 'progress-ring-fill--over': budgetExceeded }"
             cx="60"
             cy="60"
             r="45"
@@ -36,10 +64,13 @@ const strokeDashoffset = computed(() => circumference - (budgetUsedPercent.value
             transform="rotate(-90 60 60)"
           />
         </svg>
-        <span class="progress-label">{{ budgetUsedPercent }}% usado</span>
+        <div class="progress-label-stack">
+          <span class="progress-label-main">{{ centerLabel }}</span>
+          <span v-if="hasMonthlyBudget" class="progress-label-sub">{{ sublineLabel }}</span>
+        </div>
       </div>
       <div class="overview-values">
-        <p class="label">Saldo restante</p>
+        <p class="label">Saldo disponível</p>
         <p class="remaining">{{ formatCurrency(remainingBalance) }}</p>
         <div class="sub-cards">
           <div class="sub-card">
@@ -48,7 +79,7 @@ const strokeDashoffset = computed(() => circumference - (budgetUsedPercent.value
               <path d="M12 12h.01M17 8H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1z"/>
             </svg>
             <div>
-              <span class="sub-label">Orçamento</span>
+              <span class="sub-label">Orçamento do mês</span>
               <span class="sub-value">{{ formatCurrency(budget) }}</span>
             </div>
           </div>
@@ -58,8 +89,8 @@ const strokeDashoffset = computed(() => circumference - (budgetUsedPercent.value
               <path d="M18 9l-5 5-4-4-3 3"/>
             </svg>
             <div>
-              <span class="sub-label">Gasto</span>
-              <span class="sub-value">{{ formatCurrency(spent) }}</span>
+              <span class="sub-label">{{ secondarySpendLabel }}</span>
+              <span class="sub-value">{{ formatCurrency(totalExpenses) }}</span>
             </div>
           </div>
         </div>
@@ -99,18 +130,38 @@ const strokeDashoffset = computed(() => circumference - (budgetUsedPercent.value
 
 .progress-ring-fill {
   stroke: var(--dp-green);
-  transition: stroke-dashoffset 0.4s ease;
+  transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
 }
 
-.progress-label {
+.progress-ring-fill--over {
+  stroke: hsl(0, 72%, 50%);
+}
+
+.progress-label-stack {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 0.85rem;
+  gap: 0.1rem;
+  padding: 0 0.5rem;
+  text-align: center;
+}
+
+.progress-label-main {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--dp-text-primary);
+  line-height: 1.1;
+}
+
+.progress-label-sub {
+  font-size: 0.68rem;
   font-weight: 500;
-  color: var(--dp-text-secondary);
+  color: var(--dp-text-muted);
+  line-height: 1.2;
+  max-width: 5.5rem;
 }
 
 .overview-values {
