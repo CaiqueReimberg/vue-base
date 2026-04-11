@@ -53,8 +53,24 @@ async function request<T>(
     throw new Error(message)
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(err.message ?? `Erro ${res.status}`)
+    const raw = await res.text()
+    let message = res.statusText
+    if (raw) {
+      try {
+        const err = JSON.parse(raw) as { message?: string }
+        message = err.message ?? message
+      } catch {
+        const looksLikeVite404 =
+          import.meta.env.DEV &&
+          res.status === 404 &&
+          /^\s*</.test(raw)
+        if (looksLikeVite404) {
+          message =
+            'A URL da API não foi encaminhada ao backend no Vite (proxy). Inclua o prefixo em vite.config.ts ou use VITE_API_URL apontando para a API.'
+        }
+      }
+    }
+    throw new Error(message ?? `Erro ${res.status}`)
   }
   if (res.status === 204) return undefined as T
   const text = await res.text()
