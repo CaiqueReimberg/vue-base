@@ -80,6 +80,11 @@ const router = createRouter({
           name: 'budget-edit',
           component: () => import('../views/BudgetFormView.vue'),
         },
+        {
+          path: 'profile',
+          name: 'profile',
+          component: () => import('../views/ProfileView.vue'),
+        },
       ],
     },
   ],

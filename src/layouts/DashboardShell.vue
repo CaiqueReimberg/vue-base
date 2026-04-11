@@ -28,7 +28,7 @@ function toggleCollapse() {
 </script>
 
 <template>
-  <div class="dashboard-shell">
+  <div class="dashboard-shell" :class="{ 'dashboard-shell--collapsed': sidebarCollapsed }">
     <DashboardSidebar
       :collapsed="sidebarCollapsed"
       :mobile-open="mobileOpen"
@@ -68,6 +68,17 @@ function toggleCollapse() {
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--color-background);
+}
+
+@media (min-width: 768px) {
+  .dashboard-shell__main {
+    margin-left: 15rem;
+    transition: margin-left 0.2s ease;
+  }
+
+  .dashboard-shell--collapsed .dashboard-shell__main {
+    margin-left: 4.5rem;
+  }
 }
 
 .dashboard-shell__backdrop {

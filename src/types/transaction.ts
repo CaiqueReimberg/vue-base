@@ -1,3 +1,5 @@
+import type { PublicOwner } from './owner'
+
 export type TransactionType = 'expense' | 'income'
 
 export interface TransactionRelationRef {
@@ -12,10 +14,13 @@ export interface Transaction {
   description: string
   occurredAt: string
   createdAt: string
+  /** Visível para o parceiro no vínculo + entra no orçamento compartilhado quando true. */
+  isShared?: boolean
   installmentNumber?: number | null
   installmentTotal?: number | null
   account?: TransactionRelationRef | null
   card?: TransactionRelationRef | null
+  owner?: PublicOwner | null
 }
 
 export interface TransactionsListResponse {
@@ -34,6 +39,7 @@ export interface TransactionCreateInput {
   occurredAt: string
   accountId?: string
   cardId?: string
+  isShared?: boolean
 }
 
 export interface TransactionUpdateInput {
@@ -43,6 +49,7 @@ export interface TransactionUpdateInput {
   amount?: number
   description?: string
   occurredAt?: string
+  isShared?: boolean
 }
 
 export interface InstallmentExpenseCreateInput {
@@ -52,4 +59,5 @@ export interface InstallmentExpenseCreateInput {
   installmentTotal: number
   accountId?: string
   cardId?: string
+  isShared?: boolean
 }

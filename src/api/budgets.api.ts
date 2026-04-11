@@ -14,6 +14,9 @@ function monthlyPayload(input: MonthlyBudgetCreateInput | MonthlyBudgetUpdateInp
     scope: 'person',
     period: 'monthly',
   }
+  if (body.audience == null) {
+    body.audience = 'individual'
+  }
   return body
 }
 
@@ -24,6 +27,7 @@ export const budgetsApi = {
     period?: string
     referenceMonth?: string
     scope?: string
+    audience?: string
     isActive?: boolean
   }): Promise<BudgetListResponse> {
     const q = new URLSearchParams()
@@ -32,6 +36,7 @@ export const budgetsApi = {
     if (params?.period) q.set('period', params.period)
     if (params?.referenceMonth) q.set('referenceMonth', params.referenceMonth)
     if (params?.scope) q.set('scope', params.scope)
+    if (params?.audience) q.set('audience', params.audience)
     if (params?.isActive !== undefined) q.set('isActive', String(params.isActive))
     const qs = q.toString()
     return request<BudgetListResponse>(`/budgets${qs ? `?${qs}` : ''}`)

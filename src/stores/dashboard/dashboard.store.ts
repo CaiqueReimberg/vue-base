@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { accountsApi } from '@/api/accounts.api'
 import { budgetsApi } from '@/api/budgets.api'
 import { transactionsApi } from '@/api/transactions.api'
+import type { Budget } from '@/types/budget'
 
 export interface Expense {
   id: string
@@ -20,8 +21,13 @@ export type DashboardBudgetStatus = 'none' | 'within' | 'over'
 export interface DashboardState {
   coupleName: string
   periodLabel: string
-  budget: number
-  spent: number
+  /** Orçamentos mensais individuais (só movimentações não compartilhadas). */
+  individualBudgetLimit: number
+  individualBudgetSpent: number
+  /** Orçamento do casal (movimentações com “compartilhar”). */
+  sharedBudgetLimit: number
+  sharedBudgetSpent: number
+  sharedBudgetIncome: number
   availableBalance: number
   totalExpenses: number
   monthlyIncome: number
@@ -55,6 +61,10 @@ function occurredInCalendarMonth(iso: string, y: number, month1to12: number): bo
   return d.getFullYear() === y && d.getMonth() + 1 === month1to12
 }
 
+function audienceOf(b: Budget): 'individual' | 'shared' {
+  return b.audience ?? 'individual'
+}
+
 async function sumTransactionAmountInMonth(
   type: 'expense' | 'income',
   year: number,
@@ -80,8 +90,11 @@ export const useDashboardStore = defineStore('dashboard', {
   state: (): DashboardState => ({
     coupleName: 'Painel financeiro',
     periodLabel: '',
-    budget: 0,
-    spent: 0,
+    individualBudgetLimit: 0,
+    individualBudgetSpent: 0,
+    sharedBudgetLimit: 0,
+    sharedBudgetSpent: 0,
+    sharedBudgetIncome: 0,
     availableBalance: 0,
     totalExpenses: 0,
     monthlyIncome: 0,
@@ -99,23 +112,44 @@ export const useDashboardStore = defineStore('dashboard', {
       return state.availableBalance
     },
 
-    /** Percentual real (pode passar de 100). */
-    budgetUsedPercentRaw(state): number {
-      if (state.budget <= 0) return 0
-      return Math.round((state.spent / state.budget) * 100)
+    individualBudgetUsedPercentRaw(state): number {
+      if (state.individualBudgetLimit <= 0) return 0
+      return Math.round((state.individualBudgetSpent / state.individualBudgetLimit) * 100)
     },
 
-    /** Arco do gráfico: no máximo 100%. */
-    budgetRingPercent(): number {
-      return Math.min(100, this.budgetUsedPercentRaw)
+    sharedBudgetUsedPercentRaw(state): number {
+      if (state.sharedBudgetLimit <= 0) return 0
+      return Math.round((state.sharedBudgetSpent / state.sharedBudgetLimit) * 100)
     },
 
-    budgetExceeded(): boolean {
-      return this.budget > 0 && this.spent > this.budget
+    individualBudgetRingPercent(): number {
+      return Math.min(100, this.individualBudgetUsedPercentRaw)
     },
 
-    hasMonthlyBudget(): boolean {
-      return this.budget > 0
+    sharedBudgetRingPercent(): number {
+      return Math.min(100, this.sharedBudgetUsedPercentRaw)
+    },
+
+    individualBudgetExceeded(state): boolean {
+      return (
+        state.individualBudgetLimit > 0 && state.individualBudgetSpent > state.individualBudgetLimit
+      )
+    },
+
+    sharedBudgetExceeded(state): boolean {
+      return state.sharedBudgetLimit > 0 && state.sharedBudgetSpent > state.sharedBudgetLimit
+    },
+
+    hasIndividualBudget(): boolean {
+      return this.individualBudgetLimit > 0
+    },
+
+    hasSharedBudget(): boolean {
+      return this.sharedBudgetLimit > 0
+    },
+
+    hasAnyMonthlyBudget(): boolean {
+      return this.hasIndividualBudget || this.hasSharedBudget
     },
 
     formatCurrency() {
@@ -135,10 +169,9 @@ export const useDashboardStore = defineStore('dashboard', {
       return labels[state.activeFilter]
     },
 
-    /** Texto do valor secundário ao lado do orçamento (sub-card). */
     secondarySpendLabel(): string {
-      if (this.hasMonthlyBudget) {
-        return 'Realizado no orçamento'
+      if (this.hasAnyMonthlyBudget) {
+        return 'Realizado nos orçamentos'
       }
       if (this.activeFilter === 'expense') {
         return 'Gastos no mês'
@@ -172,55 +205,73 @@ export const useDashboardStore = defineStore('dashboard', {
         const typeParam =
           this.activeFilter === 'account' ? undefined : this.activeFilter
 
-        const [
-          accounts,
-          monthlyExpenseSum,
-          monthlyIncomeSum,
-          budgetListRes,
-          firstListPage,
-        ] = await Promise.all([
-          accountsApi.list(),
-          sumTransactionAmountInMonth('expense', y, m),
-          sumTransactionAmountInMonth('income', y, m),
-          budgetsApi.list({
-            period: 'monthly',
-            referenceMonth,
-            isActive: true,
-            limit: 100,
-          }),
-          transactionsApi.list({ type: typeParam, page: 1, limit: 100 }),
-        ])
+        const [accounts, monthlyExpenseSum, monthlyIncomeSum, budgetListRes, firstListPage] =
+          await Promise.all([
+            accountsApi.list(),
+            sumTransactionAmountInMonth('expense', y, m),
+            sumTransactionAmountInMonth('income', y, m),
+            budgetsApi.list({
+              period: 'monthly',
+              referenceMonth,
+              isActive: true,
+              limit: 100,
+            }),
+            transactionsApi.list({ type: typeParam, page: 1, limit: 100 }),
+          ])
 
-        /** Saldo disponível = soma dos saldos de todas as contas bancárias (corrente/poupança etc.). */
         this.availableBalance = accounts.reduce(
           (sum, account) => sum + Number(account.balance),
           0,
         )
         this.monthlyIncome = monthlyIncomeSum
 
-        const monthlyBudgets = budgetListRes.data
-        const totalLimit = monthlyBudgets.reduce((s, b) => s + b.limitAmount, 0)
-        let totalSpentBudget = 0
-        if (monthlyBudgets.length > 0) {
+        const individualBudgets = budgetListRes.data.filter((b) => audienceOf(b) === 'individual')
+        const sharedBudgets = budgetListRes.data.filter((b) => audienceOf(b) === 'shared')
+
+        this.individualBudgetLimit = individualBudgets.reduce((s, b) => s + b.limitAmount, 0)
+        this.sharedBudgetLimit = sharedBudgets.reduce((s, b) => s + b.limitAmount, 0)
+
+        let individualSpent = 0
+        if (individualBudgets.length > 0) {
           const statuses = await Promise.all(
-            monthlyBudgets.map((b) => budgetsApi.getStatus(b.id)),
+            individualBudgets.map((b) => budgetsApi.getStatus(b.id)),
           )
-          totalSpentBudget = statuses.reduce((s, st) => s + st.spent, 0)
+          individualSpent = statuses.reduce((s, st) => s + st.spent, 0)
         }
+        this.individualBudgetSpent = individualSpent
 
-        this.budget = totalLimit
-        this.spent = totalSpentBudget
+        let sharedSpent = 0
+        let sharedIncome = 0
+        if (sharedBudgets.length > 0) {
+          const statuses = await Promise.all(
+            sharedBudgets.map((b) => budgetsApi.getStatus(b.id)),
+          )
+          sharedSpent = statuses.reduce((s, st) => s + st.spent, 0)
+          sharedIncome = statuses.reduce((s, st) => s + (st.sharedIncomeTotal ?? 0), 0)
+        }
+        this.sharedBudgetSpent = sharedSpent
+        this.sharedBudgetIncome = sharedIncome
 
-        if (totalLimit <= 0) {
+        const hasAnyLimit = this.individualBudgetLimit > 0 || this.sharedBudgetLimit > 0
+        const indOver =
+          this.individualBudgetLimit > 0 && this.individualBudgetSpent > this.individualBudgetLimit
+        const shOver =
+          this.sharedBudgetLimit > 0 && this.sharedBudgetSpent > this.sharedBudgetLimit
+
+        if (!hasAnyLimit) {
           this.budgetStatus = 'none'
-        } else if (totalSpentBudget > totalLimit) {
+        } else if (indOver || shOver) {
           this.budgetStatus = 'over'
         } else {
           this.budgetStatus = 'within'
         }
 
+        const totalLimitForUi =
+          this.individualBudgetLimit + this.sharedBudgetLimit
+        const totalSpentForUi = individualSpent + sharedSpent
+
         if (this.activeFilter === 'expense') {
-          this.totalExpenses = totalLimit > 0 ? totalSpentBudget : monthlyExpenseSum
+          this.totalExpenses = totalLimitForUi > 0 ? totalSpentForUi : monthlyExpenseSum
         } else if (this.activeFilter === 'income') {
           this.totalExpenses = monthlyIncomeSum
         } else {

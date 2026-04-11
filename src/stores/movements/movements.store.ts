@@ -150,6 +150,7 @@ export const useMovementsStore = defineStore('movements', {
           description: payload.description,
           occurredAt: payload.occurredAt,
           accountId: payload.accountId,
+          isShared: payload.isShared,
         }
         if (type === 'expense') {
           if (installmentTotal != null && installmentTotal >= 2) {
@@ -160,6 +161,7 @@ export const useMovementsStore = defineStore('movements', {
               accountId: payload.accountId,
               cardId: payload.cardId,
               installmentTotal,
+              isShared: payload.isShared,
             })
           } else {
             await transactionsApi.createExpense(payload)

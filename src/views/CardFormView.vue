@@ -18,6 +18,7 @@ const name = ref('')
 const limitAmount = ref<number>(5000)
 const closingDay = ref<number>(10)
 const dueDay = ref<number>(20)
+const shareWithPartner = ref(false)
 const submitting = ref(false)
 const formError = ref('')
 
@@ -29,6 +30,7 @@ onMounted(async () => {
       limitAmount.value = card.limitAmount
       closingDay.value = card.closingDay
       dueDay.value = card.dueDay
+      shareWithPartner.value = Boolean(card.shareWithPartner)
     } catch {
       formError.value = store.error ?? 'Cartão não encontrado'
       toastStore.error(store.error ?? 'Erro ao carregar cartão.')
@@ -68,6 +70,7 @@ async function submit() {
     limitAmount: Number(limitAmount.value),
     closingDay: Number(closingDay.value),
     dueDay: Number(dueDay.value),
+    shareWithPartner: shareWithPartner.value,
   }
   try {
     if (isEdit.value) {
@@ -115,6 +118,12 @@ function cancel() {
           required
         />
       </div>
+      <div class="crud-form-group crud-form-group--checkbox">
+        <label class="checkbox-label">
+          <input v-model="shareWithPartner" type="checkbox" />
+          <span>Parceiro pode ver este cartão e as faturas</span>
+        </label>
+      </div>
       <div class="crud-form-group">
         <label for="card-limit">Limite (R$)</label>
         <input
@@ -144,3 +153,22 @@ function cancel() {
     </CrudFormLayout>
   </div>
 </template>
+
+<style scoped>
+.crud-form-group--checkbox {
+  margin-bottom: 0.75rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--dp-text-primary);
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  margin-top: 0.2rem;
+}
+</style>

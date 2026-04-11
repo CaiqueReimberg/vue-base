@@ -5,15 +5,19 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useMovementsStore } from '@/stores/movements/movements.store'
 import { useAccountsStore } from '@/stores/accounts/accounts.store'
 import { useCardsStore } from '@/stores/cards/cards.store'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { Movement, MovementType } from '@/stores/movements/movements.store'
 import { transactionsApi } from '@/api/transactions.api'
 import type { TransactionCreateInput } from '@/types/transaction'
+import type { PublicOwner } from '@/types/owner'
+import { ownerBadgeLabel, isMyResource } from '@/utils/owner'
 import { PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 
 const store = useMovementsStore()
 const accountsStore = useAccountsStore()
 const cardsStore = useCardsStore()
+const authStore = useAuthStore()
 const toastStore = useToastStore()
 const {
   filteredMovements,
@@ -50,6 +54,8 @@ const recurringMonths = ref<number | ''>('')
 const isInstallment = ref(false)
 const installmentTotal = ref(2)
 const occurredAt = ref(new Date().toISOString().slice(0, 10))
+/** Parceiro vê no app e entra no orçamento compartilhado quando marcado. */
+const isShared = ref(false)
 const formError = ref('')
 const removeOpen = ref(false)
 const movementToRemove = ref<Movement | null>(null)
@@ -58,6 +64,17 @@ const editInstallmentLabel = ref<string | null>(null)
 
 const accountOptions = computed(() => accountsStore.accounts)
 const cardOptions = computed(() => cardsStore.cards)
+const currentUserId = computed(() => authStore.currentUserId)
+
+function sourceOptionLabel(name: string, owner: PublicOwner | null | undefined) {
+  const o = ownerBadgeLabel(owner ?? null, currentUserId.value)
+  return o ? `${name} (${o})` : name
+}
+
+function isMyMovement(m: Movement) {
+  return isMyResource(m.owner ?? null, currentUserId.value)
+}
+
 const isEditing = computed(() => Boolean(editingId.value))
 const amountLabel = computed(() =>
   isInstallment.value && !isEditing.value && type.value === 'expense' ? 'Valor total' : 'Valor',
@@ -115,7 +132,10 @@ watch([filterType, filterAccountId, filterCardId], async () => {
 function getMovementMeta(m: Movement) {
   const accountName = m.account?.name || m.card?.name || 'Sem origem'
   const createdAt = new Date(m.createdAt).toLocaleDateString('pt-BR')
-  return `${accountName} • ${createdAt}`
+  const who = ownerBadgeLabel(m.owner ?? null, currentUserId.value)
+  return who
+    ? `${accountName} • ${createdAt} • De ${who}`
+    : `${accountName} • ${createdAt}`
 }
 
 function getAmountClass(m: Movement) {
@@ -142,6 +162,7 @@ function openCreateForm() {
   isInstallment.value = false
   installmentTotal.value = 2
   occurredAt.value = new Date().toISOString().slice(0, 10)
+  isShared.value = false
   formError.value = ''
   editInstallmentLabel.value = null
   editLoading.value = false
@@ -157,6 +178,10 @@ function isoToDateInput(iso: string) {
 }
 
 async function openEditForm(movement: Movement) {
+  if (!isMyMovement(movement)) {
+    toastStore.error('Só é possível editar as suas próprias movimentações.')
+    return
+  }
   editingId.value = movement.id
   formError.value = ''
   editInstallmentLabel.value = null
@@ -177,6 +202,7 @@ async function openEditForm(movement: Movement) {
       cardId.value = cardOptions.value[0]?.id ?? ''
     }
     occurredAt.value = isoToDateInput(full.occurredAt)
+    isShared.value = Boolean(full.isShared)
     if (
       full.installmentTotal != null &&
       full.installmentTotal > 1 &&
@@ -198,6 +224,7 @@ async function openEditForm(movement: Movement) {
       cardId.value = cardOptions.value[0]?.id ?? ''
     }
     occurredAt.value = isoToDateInput(movement.occurredAt)
+    isShared.value = Boolean(movement.isShared)
     if (
       movement.installmentTotal != null &&
       movement.installmentTotal > 1 &&
@@ -223,6 +250,10 @@ function closeForm() {
 }
 
 function openRemoveConfirm(movement: Movement) {
+  if (!isMyMovement(movement)) {
+    toastStore.error('Só é possível excluir as suas próprias movimentações.')
+    return
+  }
   movementToRemove.value = movement
   removeOpen.value = true
 }
@@ -295,6 +326,7 @@ function buildTransactionPayload(): TransactionCreateInput {
     description: description.value.trim(),
     amount: Number(amount.value),
     occurredAt: occurredAtIso,
+    isShared: isShared.value,
   }
   if (type.value === 'income') {
     return { ...base, accountId: accountId.value }
@@ -458,7 +490,7 @@ async function nextPage() {
             <select id="movement-account" v-model="accountId" class="filter-select movement-form-select">
               <option value="" disabled>Selecione</option>
               <option v-for="account in accountOptions" :key="account.id" :value="account.id">
-                {{ account.name }}
+                {{ sourceOptionLabel(account.name, account.owner) }}
               </option>
             </select>
           </div>
@@ -467,7 +499,7 @@ async function nextPage() {
             <select id="movement-card" v-model="cardId" class="filter-select movement-form-select">
               <option value="" disabled>Selecione</option>
               <option v-for="card in cardOptions" :key="card.id" :value="card.id">
-                {{ card.name }}
+                {{ sourceOptionLabel(card.name, card.owner) }}
               </option>
             </select>
           </div>
@@ -475,6 +507,12 @@ async function nextPage() {
             <label for="movement-date">Data</label>
             <input id="movement-date" v-model="occurredAt" type="date" class="search-input" />
           </div>
+        </div>
+        <div class="movement-form-row movement-form-row--checkbox">
+          <label class="checkbox-label">
+            <input v-model="isShared" type="checkbox" />
+            <span>Compartilhar com o parceiro (visível para ele e no orçamento compartilhado)</span>
+          </label>
         </div>
         <div
           v-if="type === 'expense' && !isEditing"
@@ -563,7 +601,7 @@ async function nextPage() {
         >
           <option value="all">Todas as contas</option>
           <option v-for="account in accountOptions" :key="account.id" :value="account.id">
-            {{ account.name }}
+            {{ sourceOptionLabel(account.name, account.owner) }}
           </option>
         </select>
         <select
@@ -574,7 +612,7 @@ async function nextPage() {
         >
           <option value="all">Todos os cartões</option>
           <option v-for="card in cardOptions" :key="card.id" :value="card.id">
-            {{ card.name }}
+            {{ sourceOptionLabel(card.name, card.owner) }}
           </option>
         </select>
       </div>
@@ -605,6 +643,19 @@ async function nextPage() {
             <div class="movement-head">
               <span class="movement-description">{{ movement.description }}</span>
               <span
+                v-if="ownerBadgeLabel(movement.owner ?? null, currentUserId)"
+                class="movement-owner-chip"
+              >
+                De {{ ownerBadgeLabel(movement.owner ?? null, currentUserId) }}
+              </span>
+              <span
+                v-if="movement.isShared"
+                class="movement-shared-tag"
+                title="Visível ao parceiro"
+              >
+                Compartilhado
+              </span>
+              <span
                 v-if="movement.installmentTotal && movement.installmentTotal > 1 && movement.installmentNumber"
                 class="movement-parcel-tag"
                 :title="`Parcela ${movement.installmentNumber} de ${movement.installmentTotal}`"
@@ -619,10 +670,18 @@ async function nextPage() {
           </div>
           <span :class="getAmountClass(movement)">{{ formatMovementAmount(movement) }}</span>
           <div class="movement-actions">
-            <button type="button" class="crud-icon-btn" title="Editar" aria-label="Editar" @click="openEditForm(movement)">
+            <button
+              v-if="isMyMovement(movement)"
+              type="button"
+              class="crud-icon-btn"
+              title="Editar"
+              aria-label="Editar"
+              @click="openEditForm(movement)"
+            >
               <PencilSquareIcon class="h-5 w-5" />
             </button>
             <button
+              v-if="isMyMovement(movement)"
               type="button"
               class="crud-icon-btn crud-icon-btn--danger"
               title="Excluir"
@@ -1001,6 +1060,24 @@ async function nextPage() {
   border-radius: 0.25rem;
   background: var(--dp-surface-hover);
   color: var(--dp-text-muted);
+}
+
+.movement-owner-chip {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.35rem;
+  background: var(--dp-green-mute);
+  color: var(--dp-green);
+}
+
+.movement-shared-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  background: hsl(210 40% 92%);
+  color: hsl(210 65% 35%);
 }
 
 .movement-form-row {

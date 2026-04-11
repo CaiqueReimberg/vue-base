@@ -1,36 +1,39 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { cardsApi } from '@/api/cards.api'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
-import type { CardInvoicesResponse } from '@/types/card-invoice'
-import { ArrowLeftIcon } from '@heroicons/vue/24/outline'
+import type { CardInvoicePeriod, CardInvoicesResponse } from '@/types/card-invoice'
+import { ownerBadgeLabel } from '@/utils/owner'
+import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const toastStore = useToastStore()
+
+const currentUserId = computed(() => authStore.currentUserId)
 
 const cardId = computed(() => route.params.id as string)
 
-type InvoiceRangePreset = '3-3' | '6-3' | '12-3' | '6-6'
-
-/** Fechamentos passados + futuros; o ciclo atual é o 1º item. */
-const rangePreset = ref<InvoiceRangePreset>('3-3')
-
-const presetParams: Record<
-  InvoiceRangePreset,
-  { pastCycles: number; futureCycles: number }
-> = {
-  '3-3': { pastCycles: 3, futureCycles: 3 },
-  '6-3': { pastCycles: 6, futureCycles: 3 },
-  '12-3': { pastCycles: 12, futureCycles: 3 },
-  '6-6': { pastCycles: 6, futureCycles: 6 },
+function currentMonthYm(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
 }
+
+const selectedMonth = ref(currentMonthYm())
 
 const loading = ref(true)
 const error = ref<string | null>(null)
 const data = ref<CardInvoicesResponse | null>(null)
-const expanded = ref<Record<number, boolean>>({})
+
+const invoice = computed<CardInvoicePeriod | null>(() => {
+  const inv = data.value?.invoices?.[0]
+  return inv ?? null
+})
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -54,15 +57,30 @@ function formatDue(iso: string) {
   })
 }
 
+function monthHeading(ym: string) {
+  const [y, m] = ym.split('-').map(Number)
+  if (!y || !m) return ym
+  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function shiftMonth(delta: number) {
+  const [y, m] = selectedMonth.value.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  selectedMonth.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
 async function load() {
   loading.value = true
   error.value = null
   try {
-    data.value = await cardsApi.getInvoices(
-      cardId.value,
-      presetParams[rangePreset.value],
-    )
-    expanded.value = {}
+    data.value = await cardsApi.getInvoices(cardId.value, {
+      pastCycles: 0,
+      futureCycles: 0,
+      referenceMonth: selectedMonth.value,
+    })
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Erro ao carregar faturas'
     toastStore.error(error.value)
@@ -71,15 +89,7 @@ async function load() {
   }
 }
 
-onMounted(load)
-
-watch(rangePreset, () => {
-  load()
-})
-
-function toggle(idx: number) {
-  expanded.value = { ...expanded.value, [idx]: !expanded.value[idx] }
-}
+watch([cardId, selectedMonth], load, { immediate: true })
 
 function back() {
   router.push({ name: 'cards' })
@@ -93,62 +103,79 @@ function back() {
         <ArrowLeftIcon class="h-5 w-5" />
       </button>
       <div class="page-head-text">
-        <h1 class="page-title">Faturas do cartão</h1>
+        <h1 class="page-title">Fatura do cartão</h1>
         <p v-if="data" class="page-sub">
           {{ data.card.name }} • Fecha dia {{ data.card.closingDay }} • Vence dia {{ data.card.dueDay }} • Limite
           {{ formatCurrency(data.card.limitAmount) }}
+          <template v-if="ownerBadgeLabel(data.card.owner ?? null, currentUserId)">
+            • Cartão de {{ ownerBadgeLabel(data.card.owner ?? null, currentUserId) }}
+          </template>
         </p>
       </div>
     </header>
 
-    <div class="cycles-toolbar">
-      <label for="cycles-select" class="cycles-label">Janela de faturas</label>
-      <select id="cycles-select" v-model="rangePreset" class="cycles-select">
-        <option value="3-3">3 anteriores + atual + 3 futuras</option>
-        <option value="6-3">6 anteriores + atual + 3 futuras</option>
-        <option value="12-3">12 anteriores + atual + 3 futuras</option>
-        <option value="6-6">6 anteriores + atual + 6 futuras</option>
-      </select>
+    <div class="month-bar">
+      <button type="button" class="month-nav" aria-label="Mês anterior" @click="shiftMonth(-1)">
+        <ChevronLeftIcon class="h-5 w-5" />
+      </button>
+      <label class="month-picker-wrap">
+        <span class="month-picker-label">Mês de referência</span>
+        <input v-model="selectedMonth" class="month-input" type="month" />
+      </label>
+      <button type="button" class="month-nav" aria-label="Próximo mês" @click="shiftMonth(1)">
+        <ChevronRightIcon class="h-5 w-5" />
+      </button>
     </div>
 
     <p v-if="loading" class="muted">Carregando…</p>
     <p v-else-if="error" class="error-text">{{ error }}</p>
 
-    <ul v-else-if="data" class="invoice-list">
-      <li v-for="(inv, idx) in data.invoices" :key="idx" class="invoice-card">
-        <button type="button" class="invoice-summary" @click="toggle(idx)">
-          <div class="invoice-summary-main">
-            <span class="invoice-period">{{ formatRange(inv.periodStart, inv.periodEnd) }}</span>
-            <span class="invoice-due">Venc. {{ formatDue(inv.dueDate) }}</span>
+    <template v-else-if="invoice">
+      <section class="invoice-hero" aria-labelledby="invoice-heading">
+        <h2 id="invoice-heading" class="sr-only">Fatura de {{ monthHeading(selectedMonth) }}</h2>
+        <p class="invoice-month-label">{{ monthHeading(selectedMonth) }}</p>
+        <p class="invoice-period">{{ formatRange(invoice.periodStart, invoice.periodEnd) }}</p>
+        <p class="invoice-due">Vencimento {{ formatDue(invoice.dueDate) }}</p>
+        <p class="invoice-total">{{ formatCurrency(invoice.total) }}</p>
+        <p class="invoice-meta">
+          {{ invoice.transactionCount }}
+          {{ invoice.transactionCount === 1 ? 'lançamento' : 'lançamentos' }}
+        </p>
+      </section>
+
+      <ul class="tx-list">
+        <li v-for="tx in invoice.transactions" :key="tx.id" class="tx-row">
+          <div class="tx-desc-wrap">
+            <span class="tx-desc">{{ tx.description }}</span>
+            <span
+              v-if="tx.installmentTotal && tx.installmentTotal > 1 && tx.installmentNumber"
+              class="tx-parcel"
+            >
+              Parcela {{ tx.installmentNumber }}/{{ tx.installmentTotal }}
+            </span>
           </div>
-          <div class="invoice-totals">
-            <span class="invoice-total">{{ formatCurrency(inv.total) }}</span>
-            <span class="invoice-count">{{ inv.transactionCount }} lançamento(s)</span>
-            <span class="chevron" :class="{ open: expanded[idx] }">▼</span>
-          </div>
-        </button>
-        <ul v-if="expanded[idx]" class="tx-list">
-          <li v-for="tx in inv.transactions" :key="tx.id" class="tx-row">
-            <div class="tx-desc-wrap">
-              <span class="tx-desc">{{ tx.description }}</span>
-              <span
-                v-if="tx.installmentTotal && tx.installmentTotal > 1 && tx.installmentNumber"
-                class="tx-parcel"
-              >
-                Parcela {{ tx.installmentNumber }}/{{ tx.installmentTotal }}
-              </span>
-            </div>
-            <span class="tx-date">{{ new Date(tx.occurredAt).toLocaleDateString('pt-BR') }}</span>
-            <span class="tx-amount">{{ formatCurrency(tx.amount) }}</span>
-          </li>
-          <li v-if="inv.transactions.length === 0" class="tx-empty">Nenhum gasto neste ciclo.</li>
-        </ul>
-      </li>
-    </ul>
+          <span class="tx-date">{{ new Date(tx.occurredAt).toLocaleDateString('pt-BR') }}</span>
+          <span class="tx-amount">{{ formatCurrency(tx.amount) }}</span>
+        </li>
+        <li v-if="invoice.transactions.length === 0" class="tx-empty">Nenhum gasto neste ciclo.</li>
+      </ul>
+    </template>
   </div>
 </template>
 
 <style scoped>
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .invoices-page {
   max-width: 720px;
   margin: 0 auto;
@@ -192,21 +219,59 @@ function back() {
   margin-top: 0.25rem;
 }
 
-.cycles-toolbar {
+.month-bar {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--dp-border);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--dp-surface);
 }
 
-.cycles-label {
-  font-size: 0.85rem;
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--color-background);
+  color: var(--dp-text-secondary);
+  cursor: pointer;
+}
+
+.month-nav:hover {
+  background: var(--dp-surface-hover);
+}
+
+.month-picker-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.month-picker-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--dp-text-muted);
 }
 
-.cycles-select {
-  padding: 0.45rem 2rem 0.45rem 0.65rem;
-  font-size: 0.9rem;
+.month-input {
+  width: 100%;
+  max-width: 12rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
   border: 1px solid var(--dp-border);
   border-radius: 0.5rem;
   background: var(--color-background);
@@ -223,91 +288,57 @@ function back() {
   color: #dc2626;
 }
 
-.invoice-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.invoice-card {
+.invoice-hero {
   border: 1px solid var(--dp-border);
   border-radius: 0.75rem;
-  background: var(--dp-surface);
-  overflow: hidden;
+  background: linear-gradient(145deg, var(--dp-surface) 0%, var(--color-background) 100%);
+  padding: 1.25rem 1.35rem;
+  margin-bottom: 1rem;
+  text-align: center;
 }
 
-.invoice-summary {
-  width: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 1rem 1.1rem;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-}
-
-.invoice-summary:hover {
-  background: var(--dp-surface-hover);
-}
-
-.invoice-summary-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 0;
+.invoice-month-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: var(--dp-text-muted);
+  margin: 0 0 0.35rem;
 }
 
 .invoice-period {
-  font-weight: 600;
-  color: var(--dp-text-primary);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
+  color: var(--dp-text-secondary);
+  margin: 0 0 0.35rem;
 }
 
 .invoice-due {
   font-size: 0.8rem;
   color: var(--dp-text-muted);
-}
-
-.invoice-totals {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.1rem;
+  margin: 0 0 0.75rem;
 }
 
 .invoice-total {
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1.85rem;
+  font-weight: 800;
   color: var(--dp-text-primary);
+  line-height: 1.1;
+  margin: 0 0 0.35rem;
 }
 
-.invoice-count {
-  font-size: 0.75rem;
+.invoice-meta {
+  font-size: 0.85rem;
   color: var(--dp-text-muted);
-}
-
-.chevron {
-  font-size: 0.65rem;
-  color: var(--dp-text-muted);
-  transition: transform 0.2s;
-}
-
-.chevron.open {
-  transform: rotate(-180deg);
+  margin: 0;
 }
 
 .tx-list {
   list-style: none;
-  padding: 0 1rem 0.75rem;
+  padding: 0;
   margin: 0;
-  border-top: 1px solid var(--dp-border);
+  border: 1px solid var(--dp-border);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--dp-surface);
 }
 
 .tx-desc-wrap {
@@ -328,7 +359,7 @@ function back() {
   grid-template-columns: 1fr auto auto;
   gap: 0.5rem;
   align-items: center;
-  padding: 0.55rem 0;
+  padding: 0.65rem 0;
   font-size: 0.88rem;
   border-bottom: 1px solid var(--dp-border);
 }
@@ -356,8 +387,10 @@ function back() {
 }
 
 .tx-empty {
-  padding: 0.75rem 0;
-  font-size: 0.85rem;
+  padding: 1rem 0;
+  font-size: 0.9rem;
   color: var(--dp-text-muted);
+  text-align: center;
+  border: none;
 }
 </style>

@@ -17,6 +17,7 @@ const id = computed(() => (route.params.id as string) ?? '')
 const name = ref('')
 const type = ref<AccountType>('checking')
 const initialBalance = ref<number>(1000)
+const shareWithPartner = ref(false)
 const submitting = ref(false)
 const formError = ref('')
 
@@ -32,6 +33,7 @@ onMounted(async () => {
       name.value = account.name
       type.value = account.type
       initialBalance.value = account.balance
+      shareWithPartner.value = Boolean(account.shareWithPartner)
     } catch {
       formError.value = store.error ?? 'Conta não encontrada'
       toastStore.error(store.error ?? 'Erro ao carregar conta.')
@@ -52,16 +54,22 @@ async function submit() {
   if (!valid() || submitting.value) return
   submitting.value = true
   formError.value = ''
-  const data: AccountCreateInput = {
-    name: name.value.trim(),
-    type: type.value,
-    initialBalance: Number(initialBalance.value),
-  }
   try {
     if (isEdit.value) {
-      await store.update(id.value, data)
+      await store.update(id.value, {
+        name: name.value.trim(),
+        type: type.value,
+        balance: Number(initialBalance.value),
+        shareWithPartner: shareWithPartner.value,
+      })
       toastStore.success('Conta atualizada com sucesso.')
     } else {
+      const data: AccountCreateInput = {
+        name: name.value.trim(),
+        type: type.value,
+        initialBalance: Number(initialBalance.value),
+        shareWithPartner: shareWithPartner.value,
+      }
       await store.create(data)
       toastStore.success('Conta cadastrada com sucesso.')
     }
@@ -122,6 +130,31 @@ function cancel() {
           placeholder="1000"
         />
       </div>
+      <div class="crud-form-group crud-form-group--checkbox">
+        <label class="checkbox-label">
+          <input v-model="shareWithPartner" type="checkbox" />
+          <span>Parceiro pode ver esta conta e o saldo</span>
+        </label>
+      </div>
     </CrudFormLayout>
   </div>
 </template>
+
+<style scoped>
+.crud-form-group--checkbox {
+  margin-bottom: 0.75rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--dp-text-primary);
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  margin-top: 0.2rem;
+}
+</style>

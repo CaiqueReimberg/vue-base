@@ -5,7 +5,7 @@ import CrudFormLayout from '@/components/crud/CrudFormLayout.vue'
 import { budgetsApi } from '@/api/budgets.api'
 import { useBudgetsStore } from '@/stores/budgets/budgets.store'
 import { useToastStore } from '@/stores/toast/toast.store'
-import type { BudgetFormOptions, MonthlyBudgetUpdateInput } from '@/types/budget'
+import type { BudgetAudience, BudgetFormOptions, MonthlyBudgetUpdateInput } from '@/types/budget'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +24,7 @@ const limitAmount = ref<number>(0)
 const personId = ref('')
 const linkFamily = ref(false)
 const isActive = ref(true)
+const audience = ref<BudgetAudience>('individual')
 
 const submitting = ref(false)
 const formError = ref('')
@@ -55,6 +56,7 @@ onMounted(async () => {
       personId.value = b.person?.id ?? ''
       linkFamily.value = !!b.family
       isActive.value = b.isActive
+      audience.value = b.audience ?? 'individual'
     } catch {
       formError.value = store.error ?? 'Orçamento não encontrado'
       toastStore.error(store.error ?? 'Erro ao carregar orçamento.')
@@ -98,6 +100,7 @@ async function submit() {
     limitAmount: Number(limitAmount.value),
     personId: personId.value,
     isActive: isActive.value,
+    audience: audience.value,
   }
 
   try {
@@ -168,6 +171,18 @@ function cancel() {
         <div class="crud-form-group">
           <label for="budget-month">Mês de referência</label>
           <input id="budget-month" v-model="referenceMonth" type="month" class="crud-form-input" required />
+        </div>
+
+        <div class="crud-form-group">
+          <label for="budget-audience">Tipo de orçamento</label>
+          <select id="budget-audience" v-model="audience" class="crud-form-select">
+            <option value="individual">Individual (só você vê; só gastos privados contam)</option>
+            <option value="shared">Compartilhado (casal vê; entradas/gastos marcados como compartilhados)</option>
+          </select>
+          <p class="field-hint">
+            No compartilhado, entradas com “compartilhar” somam ao disponível e gastos compartilhados
+            consomem o limite.
+          </p>
         </div>
 
         <div class="crud-form-group">

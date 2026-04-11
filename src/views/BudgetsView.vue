@@ -6,14 +6,27 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 import CrudListPage from '@/components/crud/CrudListPage.vue'
 import CrudListItem from '@/components/crud/CrudListItem.vue'
 import { useBudgetsStore } from '@/stores/budgets/budgets.store'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { Budget } from '@/types/budget'
+import { ownerBadgeLabel, isMyResource } from '@/utils/owner'
 import { PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const store = useBudgetsStore()
+const authStore = useAuthStore()
 const toastStore = useToastStore()
 const { budgets, loading, error, formatCurrency } = storeToRefs(store)
+
+const currentUserId = computed(() => authStore.currentUserId)
+
+function budgetCreatorLabel(b: Budget) {
+  return ownerBadgeLabel(b.owner, currentUserId.value)
+}
+
+function canManageBudget(b: Budget) {
+  return isMyResource(b.owner, currentUserId.value)
+}
 
 const confirmOpen = ref(false)
 const budgetToRemove = ref<Budget | null>(null)
@@ -43,6 +56,10 @@ function personLabel(b: Budget) {
   const p = b.person
   if (!p) return '—'
   return p.name?.trim() || p.email
+}
+
+function audienceLabel(b: Budget) {
+  return b.audience === 'shared' ? 'Compartilhado' : 'Individual'
 }
 
 function goToNew() {
@@ -105,9 +122,15 @@ async function confirmRemove() {
       </template>
       <template #item="{ item }">
         <CrudListItem>
-          <span class="crud-item-title">{{ (item as Budget).name }}</span>
+          <div class="crud-item-title-row">
+            <span class="crud-item-title">{{ (item as Budget).name }}</span>
+            <span v-if="budgetCreatorLabel(item as Budget)" class="owner-chip">
+              Criado por {{ budgetCreatorLabel(item as Budget) }}
+            </span>
+          </div>
           <p class="crud-item-meta">
             {{ formatMonth((item as Budget).referenceMonth) }} •
+            {{ audienceLabel(item as Budget) }} •
             {{ personLabel(item as Budget) }} •
             {{ formatCurrency((item as Budget).limitAmount) }}
             <template v-if="(item as Budget).family"> • {{ (item as Budget).family!.name }}</template>
@@ -115,6 +138,7 @@ async function confirmRemove() {
           </p>
           <template #actions>
             <button
+              v-if="canManageBudget(item as Budget)"
               type="button"
               class="crud-icon-btn"
               title="Editar"
@@ -124,6 +148,7 @@ async function confirmRemove() {
               <PencilSquareIcon class="h-5 w-5" />
             </button>
             <button
+              v-if="canManageBudget(item as Budget)"
               type="button"
               class="crud-icon-btn crud-icon-btn--danger"
               title="Excluir"
@@ -140,6 +165,22 @@ async function confirmRemove() {
 </template>
 
 <style scoped>
+.crud-item-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.owner-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+  background: var(--dp-green-mute);
+  color: var(--dp-green);
+}
+
 .crud-item-inactive {
   color: var(--dp-text-muted);
   font-style: italic;

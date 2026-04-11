@@ -6,14 +6,27 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 import CrudListPage from '@/components/crud/CrudListPage.vue'
 import CrudListItem from '@/components/crud/CrudListItem.vue'
 import { useCardsStore } from '@/stores/cards/cards.store'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { Card } from '@/types/card'
+import { ownerBadgeLabel, isMyResource } from '@/utils/owner'
 import { ClipboardDocumentListIcon, PencilSquareIcon, TrashIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const store = useCardsStore()
+const authStore = useAuthStore()
 const toastStore = useToastStore()
 const { cards, loading, error, formatCurrency } = storeToRefs(store)
+
+const currentUserId = computed(() => authStore.currentUserId)
+
+function cardOwnerLabel(card: Card) {
+  return ownerBadgeLabel(card.owner ?? null, currentUserId.value)
+}
+
+function canManageCard(card: Card) {
+  return isMyResource(card.owner ?? null, currentUserId.value)
+}
 
 const confirmOpen = ref(false)
 const cardToRemove = ref<Card | null>(null)
@@ -96,7 +109,12 @@ async function confirmRemove() {
       </template>
       <template #item="{ item }">
         <CrudListItem>
-          <span class="crud-item-name">{{ (item as Card).name }}</span>
+          <div class="crud-item-title-row">
+            <span class="crud-item-name">{{ (item as Card).name }}</span>
+            <span v-if="cardOwnerLabel(item as Card)" class="owner-chip">
+              De {{ cardOwnerLabel(item as Card) }}
+            </span>
+          </div>
           <p class="crud-item-meta">
             Limite {{ formatCurrency((item as Card).limitAmount) }} •
             Fecha dia {{ (item as Card).closingDay }} •
@@ -113,6 +131,7 @@ async function confirmRemove() {
               <ClipboardDocumentListIcon class="h-5 w-5" />
             </button>
             <button
+              v-if="canManageCard(item as Card)"
               type="button"
               class="crud-icon-btn"
               title="Editar"
@@ -122,6 +141,7 @@ async function confirmRemove() {
               <PencilSquareIcon class="h-5 w-5" />
             </button>
             <button
+              v-if="canManageCard(item as Card)"
               type="button"
               class="crud-icon-btn crud-icon-btn--danger"
               title="Excluir"
@@ -136,3 +156,21 @@ async function confirmRemove() {
     </CrudListPage>
   </div>
 </template>
+
+<style scoped>
+.crud-item-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.owner-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+  background: var(--dp-green-mute);
+  color: var(--dp-green);
+}
+</style>

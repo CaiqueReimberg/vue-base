@@ -13,8 +13,9 @@ import {
   ArrowRightOnRectangleIcon,
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
+  UserCircleIcon,
 } from '@heroicons/vue/24/outline'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 defineProps<{
   collapsed: boolean
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const { isDark } = storeToRefs(themeStore)
@@ -83,6 +85,15 @@ function logout() {
         </RouterLink>
       </nav>
 
+      <RouterLink
+        to="/profile"
+        class="sidebar-profile"
+        :class="{ 'sidebar-profile--active': route.name === 'profile' }"
+      >
+        <UserCircleIcon class="sidebar-profile-icon h-6 w-6 shrink-0" aria-hidden="true" />
+        <span v-show="mobileOpen || !collapsed" class="sidebar-profile-label">Perfil</span>
+      </RouterLink>
+
       <div class="sidebar-footer">
         <button
           type="button"
@@ -127,12 +138,23 @@ function logout() {
   flex-shrink: 0;
   width: 15rem;
   min-height: 100vh;
+  min-height: 100dvh;
   border-right: 1px solid var(--dp-border);
   background: var(--color-background-soft);
   transition: width 0.2s ease, transform 0.2s ease;
 }
 
 @media (min-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 30;
+    height: 100vh;
+    height: 100dvh;
+  }
+
   .sidebar--collapsed {
     width: 4.5rem;
   }
@@ -141,9 +163,12 @@ function logout() {
 .sidebar-inner {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
   padding: 0.75rem 0.5rem;
-  gap: 1rem;
+  gap: 0.75rem;
+  box-sizing: border-box;
 }
 
 .sidebar-brand {
@@ -173,6 +198,39 @@ function logout() {
   flex-direction: column;
   gap: 0.2rem;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  margin-top: auto;
+  border-radius: 0.5rem;
+  color: var(--dp-text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.sidebar-profile:hover {
+  background: var(--dp-surface);
+  color: var(--dp-text-primary);
+}
+
+.sidebar-profile--active {
+  background: var(--dp-green-mute);
+  color: var(--dp-green);
+}
+
+.sidebar-profile-label {
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .nav-item {

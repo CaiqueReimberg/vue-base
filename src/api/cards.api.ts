@@ -13,11 +13,17 @@ export const cardsApi = {
 
   getInvoices(
     id: string,
-    opts?: { pastCycles?: number; futureCycles?: number },
+    opts?: {
+      pastCycles?: number
+      futureCycles?: number
+      /** YYYY-MM — ciclo de fatura que contém esse mês */
+      referenceMonth?: string
+    },
   ): Promise<CardInvoicesResponse> {
     const p = new URLSearchParams()
     if (opts?.pastCycles != null) p.set('pastCycles', String(opts.pastCycles))
     if (opts?.futureCycles != null) p.set('futureCycles', String(opts.futureCycles))
+    if (opts?.referenceMonth) p.set('referenceMonth', opts.referenceMonth)
     const q = p.toString() ? `?${p}` : ''
     return request<CardInvoicesResponse>(`/cards/${id}/invoices${q}`)
   },

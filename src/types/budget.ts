@@ -1,5 +1,8 @@
+import type { PublicOwner } from './owner'
+
 export type BudgetScope = 'total' | 'category' | 'person'
 export type BudgetPeriod = 'monthly' | 'yearly'
+export type BudgetAudience = 'individual' | 'shared'
 
 export interface BudgetPersonRef {
   id: string
@@ -16,6 +19,8 @@ export interface Budget {
   id: string
   name: string
   scope: BudgetScope
+  /** Ausente em registros antigos — tratar como individual. */
+  audience?: BudgetAudience
   period: BudgetPeriod
   limitAmount: number
   isActive: boolean
@@ -24,6 +29,7 @@ export interface Budget {
   referenceMonth: string | null
   createdAt: string
   updatedAt: string
+  owner: PublicOwner | null
   category: { id: string; name: string } | null
   person: BudgetPersonRef | null
   family: BudgetFamilyRef | null
@@ -50,6 +56,7 @@ export interface MonthlyBudgetCreateInput {
   referenceMonth: string
   limitAmount: number
   personId: string
+  audience?: BudgetAudience
   familyId?: string
   isActive?: boolean
 }
@@ -62,9 +69,11 @@ export interface BudgetStatus {
   budgetId: string
   name: string
   scope: string
+  audience?: BudgetAudience
   period: string
   limitAmount: number
   spent: number
+  sharedIncomeTotal?: number
   remaining: number
   progress: number
   isExceeded: boolean

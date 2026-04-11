@@ -16,6 +16,8 @@ export interface CardInvoicePeriod {
   transactions: CardInvoiceTransaction[]
 }
 
+import type { PublicOwner } from './owner'
+
 export interface CardInvoicesResponse {
   card: {
     id: string
@@ -23,6 +25,7 @@ export interface CardInvoicesResponse {
     closingDay: number
     dueDay: number
     limitAmount: number
+    owner?: PublicOwner | null
   }
   invoices: CardInvoicePeriod[]
 }
