@@ -1,33 +1,24 @@
-# vue-project
+# DuoPact — Controle Financeiro a Dois (Nuxt 3 Full-stack)
 
-This template should help get you started developing with Vue 3 in Vite.
+Aplicação unificada em **Nuxt 3** (Vue 3 + Pinia + Tailwind CSS no front e **Nitro + Drizzle ORM + SQLite** no backend integrado em `/api/*`).
 
-## Recommended IDE Setup
+## Como rodar
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+Não precisa de Docker nem de servidor backend separado! O banco SQLite é criado e populado com as categorias padrão automaticamente em `.data/dualpact.sqlite` na primeira execução.
 
-## Type Support for `.vue` Imports in TS
+```bash
+# Instalar dependências
+npm install
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
-yarn
+# Subir aplicação completa (Front + API Nitro + SQLite)
+npm run dev
 ```
 
-### Compile and Hot-Reload for Development
+Acesse em `http://localhost:3000`.
 
-```sh
-yarn dev
-```
+## Estrutura
 
-### Type-Check, Compile and Minify for Production
-
-```sh
-yarn build
-```
+- `src/` — Interface Vue 3 (`views/`, `components/`, `stores/`, `layouts/`, `api/`)
+- `server/database/` — Schema Drizzle ORM (`schema.ts`) e inicialização/seed automático do SQLite (`index.ts`)
+- `server/api/` — Endpoints da API Nitro (`/api/auth`, `/api/users`, `/api/accounts`, `/api/cards`, `/api/categories`, `/api/transactions`, `/api/recurring`, `/api/budgets`, `/api/dashboard`)
+- `server/utils/` — Autenticação JWT, regras de visibilidade do casal (household), ciclos de fatura e cálculos financeiros

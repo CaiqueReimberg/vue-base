@@ -1,0 +1,208 @@
+import { randomUUID } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import Database from 'better-sqlite3'
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3'
+import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres'
+import pg from 'pg'
+import { DEFAULT_CATEGORIES, runPostgresMigrations } from './migrate'
+import * as pgSchema from './schema.pg'
+import * as sqliteSchema from './schema.sqlite'
+
+function createSqliteDb() {
+  const dbPath = resolve(process.cwd(), '.data', 'dualpact.sqlite')
+  mkdirSync(dirname(dbPath), { recursive: true })
+
+  const sqlite = new Database(dbPath)
+  sqlite.pragma('journal_mode = WAL')
+  sqlite.pragma('foreign_keys = ON')
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS families (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      name TEXT,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      balance REAL NOT NULL DEFAULT 0,
+      initial_balance REAL NOT NULL DEFAULT 0,
+      bank_name TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      share_with_partner INTEGER NOT NULL DEFAULT 0,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS cards (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      limit_amount REAL NOT NULL,
+      closing_day INTEGER NOT NULL,
+      due_day INTEGER NOT NULL,
+      bank_name TEXT,
+      brand TEXT,
+      last4 TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      share_with_partner INTEGER NOT NULL DEFAULT 0,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS budgets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      period TEXT NOT NULL DEFAULT 'monthly',
+      audience TEXT NOT NULL DEFAULT 'individual',
+      limit_amount REAL NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      start_date TEXT,
+      end_date TEXT,
+      reference_month TEXT,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      person_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recurrings (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      type TEXT NOT NULL,
+      frequency TEXT NOT NULL DEFAULT 'monthly',
+      amount REAL NOT NULL,
+      description TEXT,
+      due_day INTEGER,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      is_shared INTEGER NOT NULL DEFAULT 0,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+      card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+      category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recurring_payments (
+      id TEXT PRIMARY KEY,
+      recurring_id TEXT NOT NULL REFERENCES recurrings(id) ON DELETE CASCADE,
+      reference_month TEXT NOT NULL,
+      paid_at TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      UNIQUE(recurring_id, reference_month)
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      due_date TEXT,
+      paid_at TEXT,
+      reference_month TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      kind TEXT,
+      debt_category TEXT,
+      installment_number INTEGER,
+      installment_total INTEGER,
+      is_shared INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+      card_id TEXT REFERENCES cards(id) ON DELETE CASCADE,
+      category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS monthly_plans (
+      id TEXT PRIMARY KEY,
+      reference_month TEXT NOT NULL,
+      monthly_income REAL NOT NULL DEFAULT 0,
+      savings_goal REAL NOT NULL DEFAULT 0,
+      savings_paid_at TEXT,
+      end_of_month_leftover REAL,
+      closed_at TEXT,
+      notes TEXT,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `)
+
+  const countRow = sqlite
+    .prepare('SELECT COUNT(*) as cnt FROM categories WHERE user_id IS NULL')
+    .get() as { cnt: number }
+  if (!countRow || countRow.cnt === 0) {
+    const now = new Date().toISOString()
+    const insertStmt = sqlite.prepare(
+      'INSERT INTO categories (id, name, type, user_id, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)',
+    )
+    const insertMany = sqlite.transaction((items: Array<[string, 'expense' | 'income']>) => {
+      for (const [name, type] of items) {
+        insertStmt.run(randomUUID(), name, type, now, now)
+      }
+    })
+    insertMany(DEFAULT_CATEGORIES)
+  }
+
+  return drizzleSqlite(sqlite, { schema: sqliteSchema })
+}
+
+let dbInstance: ReturnType<typeof createSqliteDb>
+let pgPool: pg.Pool | null = null
+
+if (process.env.DATABASE_URL) {
+  pgPool = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+  })
+  dbInstance = drizzlePg(pgPool, { schema: pgSchema }) as unknown as ReturnType<typeof createSqliteDb>
+} else {
+  dbInstance = createSqliteDb()
+}
+
+export async function ensureDatabaseReady(): Promise<void> {
+  if (pgPool) {
+    await runPostgresMigrations(pgPool, pgSchema.DB_SCHEMA_NAME)
+  }
+}
+
+export const db = dbInstance

@@ -1,7 +1,5 @@
-// Em desenvolvimento usa '' para o proxy do Vite (evita CORS). Em produção use VITE_API_URL.
-const BASE_URL =
-  import.meta.env.VITE_API_URL ??
-  (import.meta.env.DEV ? '' : 'http://localhost:3000')
+// Usa a API integrada do Nuxt Nitro em /api (ou VITE_API_URL se configurado externamente)
+const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 const AUTH_TOKEN_KEY = 'auth_token'
 
@@ -9,8 +7,10 @@ function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-  const token = localStorage.getItem(AUTH_TOKEN_KEY)
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY)
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  }
   return headers
 }
 
@@ -41,8 +41,9 @@ async function request<T>(
   })
   if (res.status === 401) {
     const err = await res.json().catch(() => ({ message: res.statusText }))
-    const message = (err as { message?: string }).message ?? 'Não autorizado'
-    const hadSession = !!localStorage.getItem(AUTH_TOKEN_KEY)
+    const data = (err as { message?: string; statusMessage?: string; data?: { message?: string } })
+    const message = data.data?.message ?? data.statusMessage ?? data.message ?? 'Não autorizado'
+    const hadSession = typeof window !== 'undefined' && !!localStorage.getItem(AUTH_TOKEN_KEY)
     if (hadSession) {
       localStorage.removeItem(AUTH_TOKEN_KEY)
       if (typeof window !== 'undefined' && !isLoginPath()) {
@@ -57,20 +58,17 @@ async function request<T>(
     let message = res.statusText
     if (raw) {
       try {
-        const err = JSON.parse(raw) as { message?: string }
-        message = err.message ?? message
-      } catch {
-        const looksLikeVite404 =
-          import.meta.env.DEV &&
-          res.status === 404 &&
-          /^\s*</.test(raw)
-        if (looksLikeVite404) {
-          message =
-            'A URL da API não foi encaminhada ao backend no Vite (proxy). Inclua o prefixo em vite.config.ts ou use VITE_API_URL apontando para a API.'
+        const err = JSON.parse(raw) as {
+          message?: string
+          statusMessage?: string
+          data?: { message?: string }
         }
+        message = err.data?.message ?? err.statusMessage ?? err.message ?? message
+      } catch {
+        // ignore JSON parse error
       }
     }
-    throw new Error(message ?? `Erro ${res.status}`)
+    throw new Error(message || `Erro ${res.status}`)
   }
   if (res.status === 204) return undefined as T
   const text = await res.text()

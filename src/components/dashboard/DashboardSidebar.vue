@@ -3,18 +3,22 @@ import { useThemeStore } from '@/stores/theme/theme.store'
 import { useAuthStore } from '@/stores/auth/auth.store'
 import { storeToRefs } from 'pinia'
 import {
-  SunIcon,
-  MoonIcon,
-  Squares2X2Icon,
-  ArrowsRightLeftIcon,
-  CreditCardIcon,
-  BuildingLibraryIcon,
-  BanknotesIcon,
-  ArrowRightOnRectangleIcon,
-  ChevronDoubleLeftIcon,
-  ChevronDoubleRightIcon,
-  UserCircleIcon,
-} from '@heroicons/vue/24/outline'
+  ArrowLeftRight,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  CreditCard,
+  HeartHandshake,
+  Landmark,
+  LayoutDashboard,
+  LogOut,
+  Moon,
+  PiggyBank,
+  Scale,
+  Sun,
+  UserCircle,
+} from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 
 defineProps<{
@@ -33,11 +37,12 @@ const authStore = useAuthStore()
 const { isDark } = storeToRefs(themeStore)
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: Squares2X2Icon, exact: true },
-  { to: '/movements', label: 'Movimentações', icon: ArrowsRightLeftIcon, exact: false },
-  { to: '/cards', label: 'Cartões', icon: CreditCardIcon, exact: false },
-  { to: '/accounts', label: 'Contas', icon: BuildingLibraryIcon, exact: false },
-  { to: '/budgets', label: 'Orçamentos', icon: BanknotesIcon, exact: false },
+  { to: '/', label: 'Início (Mês)', icon: LayoutDashboard, exact: true },
+  { to: '/monthly-control', label: 'Contas Fixas', icon: ClipboardCheck, exact: false },
+  { to: '/debts', label: 'Dívidas & Parcelas', icon: Scale, exact: false },
+  { to: '/cards', label: 'Cartões', icon: CreditCard, exact: false },
+  { to: '/accounts', label: 'Contas / Bancos', icon: Landmark, exact: false },
+  { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false },
 ] as const
 
 function toggleTheme() {
@@ -52,81 +57,103 @@ function logout() {
 
 <template>
   <aside
-    class="sidebar"
+    class="sidebar border-r border-border bg-card text-card-foreground"
     :class="{
       'sidebar--collapsed': collapsed,
       'sidebar--mobile-open': mobileOpen,
     }"
     aria-label="Menu principal"
   >
-    <div class="sidebar-inner">
-      <div class="sidebar-brand">
-        <span class="logo-icon" aria-hidden="true">♥</span>
-        <span v-show="mobileOpen || !collapsed" class="logo-text">DuoPact</span>
+    <div class="flex h-full flex-col justify-between p-3">
+      <!-- Brand -->
+      <div class="space-y-4">
+        <div class="flex h-10 items-center gap-2.5 px-2">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+            <HeartHandshake class="h-4 w-4" />
+          </div>
+          <div v-show="mobileOpen || !collapsed" class="flex flex-col leading-none">
+            <span class="text-sm font-semibold tracking-tight text-foreground">DuoPact</span>
+            <span class="text-[11px] text-muted-foreground">Finanças a dois</span>
+          </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="space-y-1" aria-label="Navegação">
+          <RouterLink
+            v-for="item in navItems"
+            :key="item.to"
+            v-slot="{ href, navigate, isActive, isExactActive }"
+            :to="item.to"
+            custom
+          >
+            <a
+              :href="href"
+              class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors"
+              :class="
+                (item.exact ? isExactActive : isActive)
+                  ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              "
+              @click.prevent="navigate()"
+            >
+              <component
+                :is="item.icon"
+                class="h-4 w-4 shrink-0"
+                :class="(item.exact ? isExactActive : isActive) ? 'text-primary' : ''"
+                aria-hidden="true"
+              />
+              <span v-show="mobileOpen || !collapsed" class="truncate">{{ item.label }}</span>
+            </a>
+          </RouterLink>
+        </nav>
       </div>
 
-      <nav class="sidebar-nav" aria-label="Navegação">
+      <!-- Footer -->
+      <div class="space-y-1 border-t border-border pt-3">
         <RouterLink
-          v-for="item in navItems"
-          :key="item.to"
-          v-slot="{ href, navigate, isActive, isExactActive }"
-          :to="item.to"
-          custom
+          to="/profile"
+          class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors"
+          :class="
+            route.name === 'profile'
+              ? 'bg-secondary text-foreground font-semibold'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+          "
         >
-          <a
-            :href="href"
-            class="nav-item"
-            :class="{ 'nav-item--active': item.exact ? isExactActive : isActive }"
-            @click.prevent="navigate()"
-          >
-            <component :is="item.icon" class="nav-item-icon h-5 w-5 shrink-0" aria-hidden="true" />
-            <span v-show="mobileOpen || !collapsed" class="nav-item-label">{{ item.label }}</span>
-          </a>
+          <UserCircle class="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span v-show="mobileOpen || !collapsed" class="truncate">Perfil & Casal</span>
         </RouterLink>
-      </nav>
 
-      <RouterLink
-        to="/profile"
-        class="sidebar-profile"
-        :class="{ 'sidebar-profile--active': route.name === 'profile' }"
-      >
-        <UserCircleIcon class="sidebar-profile-icon h-6 w-6 shrink-0" aria-hidden="true" />
-        <span v-show="mobileOpen || !collapsed" class="sidebar-profile-label">Perfil</span>
-      </RouterLink>
-
-      <div class="sidebar-footer">
         <button
           type="button"
-          class="footer-btn"
+          class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           :title="isDark ? 'Usar tema claro' : 'Usar tema escuro'"
-          :aria-label="isDark ? 'Usar tema claro' : 'Usar tema escuro'"
           @click="toggleTheme"
         >
-          <SunIcon v-if="isDark" class="h-5 w-5 shrink-0" />
-          <MoonIcon v-else class="h-5 w-5 shrink-0" />
-          <span v-show="mobileOpen || !collapsed" class="footer-btn-label">Tema</span>
-        </button>
-        <button
-          type="button"
-          class="footer-btn footer-btn--danger"
-          title="Sair"
-          aria-label="Sair"
-          @click="logout"
-        >
-          <ArrowRightOnRectangleIcon class="h-5 w-5 shrink-0" />
-          <span v-show="mobileOpen || !collapsed" class="footer-btn-label">Sair</span>
+          <Sun v-if="isDark" class="h-4 w-4 shrink-0" />
+          <Moon v-else class="h-4 w-4 shrink-0" />
+          <span v-show="mobileOpen || !collapsed" class="truncate">
+            {{ isDark ? 'Modo claro' : 'Modo escuro' }}
+          </span>
         </button>
 
         <button
           type="button"
-          class="collapse-toggle"
+          class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+          title="Sair"
+          @click="logout"
+        >
+          <LogOut class="h-4 w-4 shrink-0" />
+          <span v-show="mobileOpen || !collapsed" class="truncate">Sair</span>
+        </button>
+
+        <button
+          type="button"
+          class="collapse-toggle mt-1 flex w-full items-center justify-center rounded-lg py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           :title="collapsed ? 'Expandir menu' : 'Recolher menu'"
-          :aria-label="collapsed ? 'Expandir menu' : 'Recolher menu'"
-          :aria-expanded="!collapsed"
           @click="emit('toggle-collapse')"
         >
-          <ChevronDoubleRightIcon v-if="collapsed" class="h-5 w-5" />
-          <ChevronDoubleLeftIcon v-else class="h-5 w-5" />
+          <ChevronRight v-if="collapsed" class="h-4 w-4" />
+          <ChevronLeft v-else class="h-4 w-4" />
         </button>
       </div>
     </div>
@@ -139,8 +166,6 @@ function logout() {
   width: 15rem;
   min-height: 100vh;
   min-height: 100dvh;
-  border-right: 1px solid var(--dp-border);
-  background: var(--color-background-soft);
   transition: width 0.2s ease, transform 0.2s ease;
 }
 
@@ -156,163 +181,8 @@ function logout() {
   }
 
   .sidebar--collapsed {
-    width: 4.5rem;
+    width: 4.25rem;
   }
-}
-
-.sidebar-inner {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  max-height: 100%;
-  padding: 0.75rem 0.5rem;
-  gap: 0.75rem;
-  box-sizing: border-box;
-}
-
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.5rem 0.5rem;
-  min-height: 2.5rem;
-}
-
-.logo-icon {
-  color: var(--dp-green);
-  font-size: 1.35rem;
-  line-height: 1;
-}
-
-.logo-text {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--dp-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.sidebar-profile {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.55rem 0.65rem;
-  margin-top: auto;
-  border-radius: 0.5rem;
-  color: var(--dp-text-secondary);
-  text-decoration: none;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: background 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-
-.sidebar-profile:hover {
-  background: var(--dp-surface);
-  color: var(--dp-text-primary);
-}
-
-.sidebar-profile--active {
-  background: var(--dp-green-mute);
-  color: var(--dp-green);
-}
-
-.sidebar-profile-label {
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.55rem 0.65rem;
-  border-radius: 0.5rem;
-  color: var(--dp-text-secondary);
-  text-decoration: none;
-  font-size: 0.9rem;
-  font-weight: 500;
-  transition: background 0.15s, color 0.15s;
-}
-
-.nav-item:hover {
-  background: var(--dp-surface);
-  color: var(--dp-text-primary);
-}
-
-.nav-item--active {
-  background: var(--dp-green-mute);
-  color: var(--dp-green);
-}
-
-.nav-item-label {
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.sidebar-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--dp-border);
-}
-
-.footer-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  padding: 0.5rem 0.65rem;
-  border: none;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--dp-text-secondary);
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.15s, color 0.15s;
-}
-
-.footer-btn:hover {
-  background: var(--dp-surface);
-  color: var(--dp-text-primary);
-}
-
-.footer-btn--danger:hover {
-  color: hsl(0, 65%, 45%);
-}
-
-.collapse-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  margin-top: 0.25rem;
-  padding: 0.45rem;
-  border: none;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--dp-text-muted);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.collapse-toggle:hover {
-  background: var(--dp-surface);
-  color: var(--dp-text-primary);
 }
 
 @media (max-width: 767px) {
@@ -322,7 +192,7 @@ function logout() {
     left: 0;
     bottom: 0;
     z-index: 50;
-    width: min(17rem, 88vw);
+    width: min(16rem, 86vw);
     min-height: 100dvh;
     transform: translateX(-100%);
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
@@ -333,7 +203,7 @@ function logout() {
   }
 
   .sidebar--collapsed {
-    width: min(17rem, 88vw);
+    width: min(16rem, 86vw);
   }
 
   .collapse-toggle {

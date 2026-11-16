@@ -130,7 +130,10 @@ watch([filterType, filterAccountId, filterCardId], async () => {
 })
 
 function getMovementMeta(m: Movement) {
-  const accountName = m.account?.name || m.card?.name || 'Sem origem'
+  const accountName =
+    m.kind === 'debt'
+      ? 'Dívida (sem conta)'
+      : m.account?.name || m.card?.name || 'Sem origem'
   const createdAt = new Date(m.createdAt).toLocaleDateString('pt-BR')
   const who = ownerBadgeLabel(m.owner ?? null, currentUserId.value)
   return who

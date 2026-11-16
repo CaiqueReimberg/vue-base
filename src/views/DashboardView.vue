@@ -1,17 +1,169 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import DashboardHomeBanner from '@/components/dashboard/DashboardHomeBanner.vue'
-import DashboardOverviewCard from '@/components/dashboard/DashboardOverviewCard.vue'
-import DashboardIncomeCards from '@/components/dashboard/DashboardIncomeCards.vue'
-import DashboardFilterChips from '@/components/dashboard/DashboardFilterChips.vue'
-import DashboardAlertCard from '@/components/dashboard/DashboardAlertCard.vue'
-import DashboardWhatsAppCard from '@/components/dashboard/DashboardWhatsAppCard.vue'
-import DashboardLatestExpenses from '@/components/dashboard/DashboardLatestExpenses.vue'
-import { useDashboardStore } from '@/stores/dashboard/dashboard.store'
+import { computed, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Sheet } from '@/components/ui/sheet'
+import {
+  useDashboardStore,
+  type DashboardPaidItem,
+  type DashboardPendingItem,
+} from '@/stores/dashboard/dashboard.store'
 import { useToastStore } from '@/stores/toast/toast.store'
+import { recurringApi } from '@/api/recurring.api'
+import { transactionsApi } from '@/api/transactions.api'
+import type { DebtCategory } from '@/types/transaction'
+import {
+  Calendar,
+  Car,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Flag,
+  GraduationCap,
+  Home,
+  Landmark,
+  Pencil,
+  PiggyBank,
+  Plus,
+  Receipt,
+  Repeat,
+  Sparkles,
+  Trash2,
+  Undo2,
+  Users,
+  Wallet,
+} from 'lucide-vue-next'
 
 const dashboardStore = useDashboardStore()
 const toastStore = useToastStore()
+
+const {
+  loading,
+  error,
+  periodLabel,
+  referenceMonth,
+  pendingItems,
+  paidItems,
+  pendingTotalAmount,
+  paidTotalAmount,
+  monthPaymentProgressPercent,
+  monthlyPlan,
+  daysRemaining,
+  formatCurrency,
+} = storeToRefs(dashboardStore)
+
+// 1. Drawer: Editar Renda + Meta de Guardar
+const planDrawerOpen = ref(false)
+const incomeInput = ref<number | ''>('')
+const savingsInput = ref<number | ''>('')
+const savingPlan = ref(false)
+
+// 2. Drawer: Check-in de fim de mês ("Quanto sobrou na conta?")
+const checkinDrawerOpen = ref(false)
+const leftoverInput = ref<number | ''>('')
+const savingCheckin = ref(false)
+
+// 3. Drawer: Nova Conta Fixa OU Financiamento/Parcela direto na Home!
+const addDrawerOpen = ref(false)
+const addMode = ref<'recurring' | 'debt'>('recurring')
+const billName = ref('')
+const billAmount = ref<number | ''>('')
+const billDueDay = ref<number | ''>(10)
+const billInstallments = ref<number | ''>(36)
+const billDebtCategory = ref<DebtCategory>('car')
+const billShared = ref(true)
+const submitting = ref(false)
+
+const DEBT_CATEGORIES: Array<{
+  value: DebtCategory
+  shortLabel: string
+  icon: any
+}> = [
+  { value: 'car', shortLabel: 'Veículo', icon: Car },
+  { value: 'home', shortLabel: 'Casa / Imóvel', icon: Home },
+  { value: 'personal_loan', shortLabel: 'Empréstimo', icon: Landmark },
+  { value: 'student', shortLabel: 'Estudos', icon: GraduationCap },
+  { value: 'other', shortLabel: 'Outro', icon: Receipt },
+]
+
+// Cálculos do modelo Anti-Planilha:
+// Renda do Mês − Contas do Mês − Quero Guardar = Livre pra Gastar
+const configuredIncome = computed(() => monthlyPlan.value?.monthlyIncome ?? 0)
+const configuredSavings = computed(() => monthlyPlan.value?.savingsGoal ?? 0)
+const isSavingsPaid = computed(() => Boolean(monthlyPlan.value?.savingsPaid))
+const endOfMonthLeftover = computed(() => monthlyPlan.value?.endOfMonthLeftover ?? null)
+
+const totalMonthBills = computed(() => {
+  const pendingBills = pendingItems.value
+    .filter((i) => i.kind !== 'savings')
+    .reduce((s, i) => s + i.amount, 0)
+  const paidBills = paidItems.value
+    .filter((i) => i.kind !== 'savings')
+    .reduce((s, i) => s + i.amount, 0)
+  return pendingBills + paidBills
+})
+
+const totalBillsCount = computed(
+  () =>
+    pendingItems.value.filter((i) => i.kind !== 'savings').length +
+    paidItems.value.filter((i) => i.kind !== 'savings').length,
+)
+
+const totalItemsCount = computed(
+  () => pendingItems.value.length + paidItems.value.length,
+)
+
+const afterBillsAmount = computed(
+  () => configuredIncome.value - totalMonthBills.value,
+)
+
+const freeToSpendAmount = computed(
+  () => configuredIncome.value - totalMonthBills.value - configuredSavings.value,
+)
+
+const freePerWeekAmount = computed(() => {
+  if (freeToSpendAmount.value <= 0) return 0
+  return freeToSpendAmount.value / 4
+})
+
+const freePerDayRemaining = computed(() => {
+  if (freeToSpendAmount.value <= 0) return 0
+  const days = Math.max(daysRemaining.value || 15, 1)
+  return freeToSpendAmount.value / days
+})
+
+const actualFreeSpent = computed(() => {
+  if (endOfMonthLeftover.value == null) return null
+  return Math.max(freeToSpendAmount.value - endOfMonthLeftover.value, 0)
+})
+
+const totalSavedInMonth = computed(() => {
+  if (endOfMonthLeftover.value == null) return null
+  return configuredSavings.value + endOfMonthLeftover.value
+})
+
+watch(
+  monthlyPlan,
+  (plan) => {
+    if (plan && !planDrawerOpen.value) {
+      incomeInput.value = plan.monthlyIncome > 0 ? plan.monthlyIncome : ''
+      savingsInput.value = plan.savingsGoal > 0 ? plan.savingsGoal : ''
+      leftoverInput.value =
+        plan.endOfMonthLeftover != null ? plan.endOfMonthLeftover : ''
+    }
+  },
+  { immediate: true },
+)
 
 onMounted(async () => {
   await dashboardStore.fetchSummary()
@@ -19,36 +171,900 @@ onMounted(async () => {
     toastStore.error(dashboardStore.error)
   }
 })
+
+function openPlanDrawer() {
+  incomeInput.value = configuredIncome.value > 0 ? configuredIncome.value : ''
+  savingsInput.value = configuredSavings.value > 0 ? configuredSavings.value : ''
+  planDrawerOpen.value = true
+}
+
+async function handleSavePlan() {
+  const inc = Number(incomeInput.value) || 0
+  const sav = Number(savingsInput.value) || 0
+  if (inc < 0 || sav < 0) {
+    toastStore.error('Os valores não podem ser negativos.')
+    return
+  }
+  savingPlan.value = true
+  try {
+    await dashboardStore.saveMonthlyPlan({
+      monthlyIncome: inc,
+      savingsGoal: sav,
+    })
+    planDrawerOpen.value = false
+    toastStore.success('Planejamento do mês atualizado!')
+  } catch {
+    toastStore.error('Não foi possível salvar o planejamento.')
+  } finally {
+    savingPlan.value = false
+  }
+}
+
+function openCheckinDrawer() {
+  leftoverInput.value =
+    endOfMonthLeftover.value != null ? endOfMonthLeftover.value : ''
+  checkinDrawerOpen.value = true
+}
+
+async function handleSaveCheckin() {
+  const val = leftoverInput.value === '' ? null : Number(leftoverInput.value)
+  if (val !== null && (!Number.isFinite(val) || val < 0)) {
+    toastStore.error('Informe um valor válido.')
+    return
+  }
+  savingCheckin.value = true
+  try {
+    await dashboardStore.saveMonthlyPlan({
+      endOfMonthLeftover: val,
+    })
+    checkinDrawerOpen.value = false
+    toastStore.success(
+      val !== null
+        ? 'Fechamento do mês registrado!'
+        : 'Fechamento do mês reaberto.',
+    )
+  } catch {
+    toastStore.error('Erro ao salvar o fechamento do mês.')
+  } finally {
+    savingCheckin.value = false
+  }
+}
+
+async function handleClearCheckin() {
+  savingCheckin.value = true
+  try {
+    await dashboardStore.saveMonthlyPlan({
+      endOfMonthLeftover: null,
+    })
+    checkinDrawerOpen.value = false
+    toastStore.success('Fechamento removido.')
+  } catch {
+    toastStore.error('Erro ao limpar fechamento.')
+  } finally {
+    savingCheckin.value = false
+  }
+}
+
+function openAddDrawer(mode: 'recurring' | 'debt' = 'recurring') {
+  addMode.value = mode
+  billName.value = ''
+  billAmount.value = ''
+  billDueDay.value = 10
+  billInstallments.value = 36
+  billDebtCategory.value = 'car'
+  billShared.value = true
+  addDrawerOpen.value = true
+}
+
+async function submitNewBill() {
+  const name = billName.value.trim()
+  const amount = Number(billAmount.value)
+  if (!name || !amount || amount <= 0) {
+    toastStore.error('Informe o nome (ex: Carro, Casa, Luz) e o valor mensal.')
+    return
+  }
+
+  submitting.value = true
+  const ym = referenceMonth.value || new Date().toISOString().slice(0, 7)
+  const dayStr = String(Math.min(Math.max(Number(billDueDay.value) || 10, 1), 28)).padStart(2, '0')
+
+  try {
+    if (addMode.value === 'recurring') {
+      await recurringApi.create({
+        name,
+        kind: 'fixed_bill',
+        transactionType: 'expense',
+        frequency: 'monthly',
+        amount,
+        dueDay: billDueDay.value ? Number(billDueDay.value) : undefined,
+        startDate: `${ym}-01`,
+        isShared: billShared.value,
+      })
+    } else {
+      await transactionsApi.createDebtExpense({
+        description: name,
+        amount,
+        installmentTotal: Math.max(Number(billInstallments.value) || 1, 1),
+        debtCategory: billDebtCategory.value,
+        occurredAt: new Date(`${ym}-${dayStr}T12:00:00`).toISOString(),
+        referenceMonth: ym,
+        isShared: billShared.value,
+      })
+    }
+
+    toastStore.success(`${name} adicionado ao mês!`)
+    addDrawerOpen.value = false
+    await dashboardStore.fetchSummary(ym)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao adicionar conta')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handlePrevMonth() {
+  await dashboardStore.changeMonth(-1)
+}
+
+async function handleNextMonth() {
+  await dashboardStore.changeMonth(1)
+}
+
+async function handleCurrentMonth() {
+  const now = new Date()
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  await dashboardStore.fetchSummary(ym)
+}
+
+async function handleMarkPaid(item: DashboardPendingItem) {
+  try {
+    await dashboardStore.markPendingItemAsPaid(item)
+    toastStore.success(`${item.title} marcado como pago!`)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao marcar como pago')
+  }
+}
+
+async function handleUnmarkPaid(item: DashboardPaidItem) {
+  try {
+    await dashboardStore.unmarkPaidItem(item)
+    toastStore.success(`${item.title} voltou para pendentes.`)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao desfazer')
+  }
+}
+
+async function handleRemovePending(item: DashboardPendingItem) {
+  try {
+    await dashboardStore.removePendingItem(item)
+    toastStore.success(`${item.title} removido.`)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao remover conta')
+  }
+}
 </script>
 
 <template>
-  <div class="dashboard">
-    <DashboardHomeBanner />
-    <DashboardOverviewCard />
-    <DashboardIncomeCards />
-    <DashboardFilterChips />
-    <DashboardAlertCard />
-    <DashboardWhatsAppCard />
-    <DashboardLatestExpenses />
+  <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 space-y-6">
+    <!-- Cabeçalho: Mês + Botões que abrem Drawers sem sair da Home -->
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 class="text-xl font-bold tracking-tight text-foreground">
+          Planejamento de {{ periodLabel || 'Mês Atual' }}
+        </h1>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          Defina quanto entra, quite as contas do mês, separe o que quer guardar e gaste o resto livremente.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="inline-flex items-center rounded-lg border border-border bg-card p-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8"
+            aria-label="Mês anterior"
+            @click="handlePrevMonth"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </Button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-foreground hover:text-primary transition-colors"
+            @click="handleCurrentMonth"
+          >
+            <Calendar class="h-3.5 w-3.5 text-muted-foreground" />
+            <span>{{ periodLabel || 'Hoje' }}</span>
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8"
+            aria-label="Próximo mês"
+            @click="handleNextMonth"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </Button>
+        </div>
+
+        <Button variant="outline" size="default" class="gap-1.5" @click="openCheckinDrawer">
+          <Flag class="h-3.5 w-3.5 text-primary" />
+          <span>{{ endOfMonthLeftover != null ? 'Fechamento do mês' : 'Fim do mês: Quanto sobrou?' }}</span>
+        </Button>
+
+        <Button size="default" class="gap-1.5" @click="openAddDrawer('recurring')">
+          <Plus class="h-4 w-4" />
+          <span>Adicionar conta</span>
+        </Button>
+      </div>
+    </header>
+
+    <!-- 1. A EQUAÇÃO DO MÊS (Renda − Contas − Guardar = Livre pra Gastar) -->
+    <Card class="overflow-hidden border-primary/25 shadow-sm">
+      <div class="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-3">
+        <div class="flex items-center gap-2">
+          <Sparkles class="h-4 w-4 text-primary" />
+          <span class="text-xs font-semibold uppercase tracking-wider text-foreground">
+            Orçamento Livre do Mês
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="xs"
+          class="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          @click="openPlanDrawer"
+        >
+          <Pencil class="h-3 w-3" />
+          <span>Definir Renda & Meta</span>
+        </Button>
+      </div>
+
+      <CardContent class="p-5">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <!-- Bloco 1: Renda do Mês -->
+          <button
+            type="button"
+            class="group flex flex-col justify-between rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-primary/40"
+            @click="openPlanDrawer"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-muted-foreground">1. Renda no mês</span>
+              <Pencil class="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-foreground">
+              {{ formatCurrency(configuredIncome) }}
+            </div>
+            <span class="mt-1 text-[11px] text-muted-foreground">
+              {{ configuredIncome > 0 ? 'Clique para ajustar' : 'Clique para informar a renda' }}
+            </span>
+          </button>
+
+          <!-- Bloco 2: (-) Contas a Pagar no Mês -->
+          <div class="flex flex-col justify-between rounded-xl border border-border bg-background p-4">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-muted-foreground">2. (−) Contas do mês</span>
+              <Badge variant="secondary" class="text-[10px] px-1.5 py-0">
+                {{ totalBillsCount }} contas
+              </Badge>
+            </div>
+            <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-foreground">
+              {{ formatCurrency(totalMonthBills) }}
+            </div>
+            <span class="mt-1 text-[11px] text-muted-foreground">
+              Sobram {{ formatCurrency(afterBillsAmount) }} após contas
+            </span>
+          </div>
+
+          <!-- Bloco 3: (-) Quero Guardar -->
+          <button
+            type="button"
+            class="group flex flex-col justify-between rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-primary/40"
+            @click="openPlanDrawer"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-muted-foreground">3. (−) Quero guardar</span>
+              <Badge
+                v-if="configuredSavings > 0"
+                :variant="isSavingsPaid ? 'success' : 'warning'"
+                class="text-[10px] px-1.5 py-0"
+              >
+                {{ isSavingsPaid ? 'Guardado ✓' : 'Na lista' }}
+              </Badge>
+              <PiggyBank v-else class="h-3.5 w-3.5 text-primary" />
+            </div>
+            <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-primary">
+              {{ formatCurrency(configuredSavings) }}
+            </div>
+            <span class="mt-1 text-[11px] text-muted-foreground">
+              {{
+                configuredSavings > 0
+                  ? isSavingsPaid
+                    ? 'Já separado neste mês'
+                    : 'Entrou em "Falta Pagar" abaixo'
+                  : 'Clique para definir reserva'
+              }}
+            </span>
+          </button>
+
+          <!-- Bloco 4: (=) LIVRE PRA GASTAR -->
+          <div
+            class="flex flex-col justify-between rounded-xl border p-4"
+            :class="
+              freeToSpendAmount >= 0
+                ? 'border-emerald-500/30 bg-emerald-500/10'
+                : 'border-red-500/30 bg-red-500/10'
+            "
+          >
+            <div class="flex items-center justify-between">
+              <span
+                class="text-xs font-semibold uppercase tracking-wide"
+                :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
+              >
+                = Livre pra gastar
+              </span>
+              <Wallet
+                class="h-4 w-4"
+                :class="freeToSpendAmount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'"
+              />
+            </div>
+            <div
+              class="mt-2 text-2xl font-extrabold tracking-tight tabular-nums"
+              :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
+            >
+              {{ formatCurrency(freeToSpendAmount) }}
+            </div>
+            <span
+              v-if="freeToSpendAmount > 0"
+              class="mt-1 text-[11px] font-medium text-emerald-700/80 dark:text-emerald-300/80"
+            >
+              ~ {{ formatCurrency(freePerWeekAmount) }}/semana ({{ formatCurrency(freePerDayRemaining) }}/dia)
+            </span>
+            <span v-else class="mt-1 text-[11px] text-red-600/90">
+              Ajuste a renda ou metas
+            </span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    <!-- Banner de Resumo quando o mês já foi conferido -->
+    <Card
+      v-if="endOfMonthLeftover != null"
+      class="border-primary/30 bg-primary/5"
+    >
+      <CardContent class="flex flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <Badge variant="success">Mês conferido</Badge>
+            <span class="text-sm font-semibold text-foreground">
+              Sobrou {{ formatCurrency(endOfMonthLeftover) }} do saldo livre!
+            </span>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            Vocês gastaram <strong>{{ formatCurrency(actualFreeSpent ?? 0) }}</strong> dos
+            {{ formatCurrency(freeToSpendAmount) }} livres e guardaram no total
+            <strong class="text-primary">{{ formatCurrency(totalSavedInMonth ?? 0) }}</strong>
+            ({{ formatCurrency(configuredSavings) }} da meta + {{ formatCurrency(endOfMonthLeftover) }} que sobrou).
+          </p>
+        </div>
+
+        <Button variant="outline" size="xs" @click="openCheckinDrawer">
+          Editar fechamento
+        </Button>
+      </CardContent>
+    </Card>
+
+    <div
+      v-if="error"
+      class="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-600 dark:text-red-400"
+    >
+      {{ error }}
+    </div>
+
+    <!-- 2. PROGRESSO DAS CONTAS DO MÊS -->
+    <Card>
+      <CardContent class="p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-4">
+            <span class="font-medium text-foreground">
+              Falta pagar: <strong class="text-amber-600 dark:text-amber-400">{{ formatCurrency(pendingTotalAmount) }}</strong>
+            </span>
+            <span class="font-medium text-foreground">
+              Já paguei: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(paidTotalAmount) }}</strong>
+            </span>
+          </div>
+          <span class="text-muted-foreground">
+            {{ paidItems.length }} de {{ totalItemsCount }} contas pagas ({{ monthPaymentProgressPercent }}%)
+          </span>
+        </div>
+
+        <Progress
+          :model-value="monthPaymentProgressPercent"
+          class="h-2"
+          indicator-class="bg-emerald-600 dark:bg-emerald-500"
+        />
+      </CardContent>
+    </Card>
+
+    <!-- 3. DUAS COLUNAS: FALTA PAGAR vs JÁ PAGUEI -->
+    <section class="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <!-- COLUNA 1: FALTA PAGAR -->
+      <Card class="flex flex-col">
+        <CardHeader class="flex flex-row items-center justify-between border-b border-border py-4">
+          <div class="flex items-center gap-2">
+            <CardTitle class="text-sm font-semibold">Falta Pagar no Mês</CardTitle>
+            <Badge :variant="pendingItems.length > 0 ? 'warning' : 'secondary'">
+              {{ pendingItems.length }}
+            </Badge>
+          </div>
+          <span class="text-sm font-semibold tabular-nums text-foreground">
+            {{ formatCurrency(pendingTotalAmount) }}
+          </span>
+        </CardHeader>
+
+        <CardContent class="flex-1 p-0">
+          <div
+            v-if="loading && pendingItems.length === 0"
+            class="py-12 text-center text-xs text-muted-foreground"
+          >
+            Carregando...
+          </div>
+
+          <div
+            v-else-if="pendingItems.length === 0"
+            class="flex flex-col items-center justify-center py-12 px-4 text-center"
+          >
+            <CheckCircle2 class="h-8 w-8 text-emerald-500/80 mb-2" />
+            <p class="text-sm font-medium text-foreground">Tudo pago neste mês!</p>
+            <p class="text-xs text-muted-foreground mt-0.5">
+              Nenhuma conta pendente. O saldo livre é todo de vocês.
+            </p>
+          </div>
+
+          <ul v-else class="divide-y divide-border" role="list">
+            <li
+              v-for="item in pendingItems"
+              :key="item.id"
+              class="group flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors"
+              :class="item.kind === 'savings' ? 'bg-primary/5' : ''"
+            >
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <PiggyBank v-if="item.kind === 'savings'" class="h-4 w-4 shrink-0 text-primary" />
+                  <p class="truncate text-sm font-medium text-foreground">
+                    {{ item.title }}
+                  </p>
+                  <Badge
+                    v-if="item.kind === 'savings'"
+                    variant="secondary"
+                    class="text-[11px] px-1.5 py-0 font-normal"
+                  >
+                    Meta do mês
+                  </Badge>
+                  <Badge
+                    v-else-if="item.dueDay"
+                    :variant="
+                      item.status === 'overdue'
+                        ? 'destructive'
+                        : item.status === 'urgent'
+                          ? 'warning'
+                          : 'secondary'
+                    "
+                    class="text-[11px] px-1.5 py-0 font-normal"
+                  >
+                    {{ item.statusLabel }}
+                  </Badge>
+                </div>
+              </div>
+
+              <div class="flex shrink-0 items-center gap-2.5">
+                <span class="text-sm font-semibold tabular-nums text-foreground">
+                  {{ formatCurrency(item.amount) }}
+                </span>
+
+                <Button
+                  v-if="item.canMarkPaid"
+                  variant="outline"
+                  size="xs"
+                  class="border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
+                  :disabled="dashboardStore.isActionLoading(item.id)"
+                  @click="handleMarkPaid(item)"
+                >
+                  <Check class="h-3.5 w-3.5" />
+                  <span>{{ item.kind === 'savings' ? 'Guardar' : 'Pagar' }}</span>
+                </Button>
+
+                <RouterLink v-else-if="item.linkTo" :to="item.linkTo">
+                  <Button variant="ghost" size="xs">
+                    <span>Ver</span>
+                    <ExternalLink class="h-3 w-3" />
+                  </Button>
+                </RouterLink>
+
+                <button
+                  v-if="item.kind === 'recurring' || item.kind === 'transaction'"
+                  type="button"
+                  class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-opacity"
+                  title="Excluir conta"
+                  @click="handleRemovePending(item)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      <!-- COLUNA 2: JÁ PAGUEI -->
+      <Card class="flex flex-col">
+        <CardHeader class="flex flex-row items-center justify-between border-b border-border py-4">
+          <div class="flex items-center gap-2">
+            <CardTitle class="text-sm font-semibold">Já Paguei</CardTitle>
+            <Badge variant="success">
+              {{ paidItems.length }}
+            </Badge>
+          </div>
+          <span class="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+            {{ formatCurrency(paidTotalAmount) }}
+          </span>
+        </CardHeader>
+
+        <CardContent class="flex-1 p-0">
+          <div
+            v-if="loading && paidItems.length === 0"
+            class="py-12 text-center text-xs text-muted-foreground"
+          >
+            Carregando...
+          </div>
+
+          <div
+            v-else-if="paidItems.length === 0"
+            class="flex flex-col items-center justify-center py-12 px-4 text-center"
+          >
+            <p class="text-sm font-medium text-muted-foreground">
+              Nenhuma conta paga ainda
+            </p>
+            <p class="text-xs text-muted-foreground mt-0.5">
+              Clique em "Pagar" nas contas ao lado conforme for quitando no mês.
+            </p>
+          </div>
+
+          <ul v-else class="divide-y divide-border" role="list">
+            <li
+              v-for="item in paidItems"
+              :key="item.id"
+              class="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors"
+            >
+              <div class="flex min-w-0 items-center gap-2.5">
+                <CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium text-foreground">
+                    {{ item.title }}
+                  </p>
+                  <p class="text-[11px] text-muted-foreground">
+                    {{ item.paidDateLabel }}
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex shrink-0 items-center gap-2.5">
+                <span class="text-sm font-medium tabular-nums text-muted-foreground">
+                  {{ formatCurrency(item.amount) }}
+                </span>
+
+                <Button
+                  v-if="item.canUnmarkPaid"
+                  variant="ghost"
+                  size="xs"
+                  class="text-muted-foreground hover:text-foreground h-7 px-2"
+                  title="Voltar para Falta Pagar"
+                  :disabled="dashboardStore.isActionLoading(item.id)"
+                  @click="handleUnmarkPaid(item)"
+                >
+                  <Undo2 class="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- DRAWER 1: ADICIONAR CONTA FIXA OU FINANCIAMENTO SEM SAIR DA HOME -->
+    <!-- ============================================================ -->
+    <Sheet
+      v-model:open="addDrawerOpen"
+      title="Adicionar conta ao mês"
+      description="Cadastre uma conta fixa mensal ou parcela de financiamento sem sair do painel."
+    >
+      <form class="space-y-5" @submit.prevent="submitNewBill">
+        <!-- Seletor: Conta Fixa vs Financiamento/Parcela -->
+        <div class="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
+          <button
+            type="button"
+            class="flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all"
+            :class="
+              addMode === 'recurring'
+                ? 'bg-background text-foreground shadow-2xs'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            @click="addMode = 'recurring'"
+          >
+            <Repeat class="h-3.5 w-3.5" />
+            <span>Conta Fixa Mensal</span>
+          </button>
+
+          <button
+            type="button"
+            class="flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all"
+            :class="
+              addMode === 'debt'
+                ? 'bg-background text-foreground shadow-2xs'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            @click="addMode = 'debt'"
+          >
+            <Car class="h-3.5 w-3.5" />
+            <span>Financiamento / Parcela</span>
+          </button>
+        </div>
+
+        <!-- Se for Financiamento, mostra os ícones de categoria -->
+        <div v-if="addMode === 'debt'" class="space-y-2">
+          <label class="text-xs font-medium text-foreground">
+            Tipo de financiamento
+          </label>
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              v-for="cat in DEBT_CATEGORIES"
+              :key="cat.value"
+              type="button"
+              class="flex flex-col items-center justify-center gap-1.5 rounded-xl border p-2.5 text-center transition-all"
+              :class="
+                billDebtCategory === cat.value
+                  ? 'border-primary bg-primary/10 text-primary font-semibold'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="billDebtCategory = cat.value"
+            >
+              <component :is="cat.icon" class="h-4 w-4" />
+              <span class="text-[11px]">{{ cat.shortLabel }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            {{ addMode === 'recurring' ? 'Nome da conta' : 'Nome do financiamento / parcela' }}
+          </label>
+          <input
+            v-model="billName"
+            type="text"
+            :placeholder="
+              addMode === 'recurring'
+                ? 'Ex: Luz, Internet, Condomínio, Aluguel...'
+                : 'Ex: Financiamento Carro, Parcela Casa...'
+            "
+            required
+            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium text-foreground">
+              Valor no mês (R$)
+            </label>
+            <input
+              v-model.number="billAmount"
+              type="number"
+              step="0.01"
+              min="0.01"
+              placeholder="0,00"
+              required
+              class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium text-foreground">
+              Dia do vencimento
+            </label>
+            <input
+              v-model.number="billDueDay"
+              type="number"
+              min="1"
+              max="31"
+              placeholder="Dia 10"
+              class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        </div>
+
+        <div v-if="addMode === 'debt'" class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            Prazo do contrato (nº de parcelas)
+          </label>
+          <input
+            v-model.number="billInstallments"
+            type="number"
+            min="1"
+            max="600"
+            placeholder="Ex: 36"
+            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <button
+          type="button"
+          class="flex h-10 w-full items-center justify-between rounded-lg border px-3 py-2 text-xs transition-colors"
+          :class="
+            billShared
+              ? 'border-primary/40 bg-primary/10 text-foreground font-medium'
+              : 'border-input bg-background text-muted-foreground'
+          "
+          @click="billShared = !billShared"
+        >
+          <span class="flex items-center gap-2">
+            <Users class="h-4 w-4" :class="billShared ? 'text-primary' : 'text-muted-foreground'" />
+            Conta compartilhada do casal
+          </span>
+          <span
+            class="flex h-5 w-5 items-center justify-center rounded-full"
+            :class="billShared ? 'bg-primary text-primary-foreground' : 'border border-muted-foreground/30'"
+          >
+            <Check v-if="billShared" class="h-3 w-3" />
+          </span>
+        </button>
+
+        <div class="flex items-center justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="outline" @click="addDrawerOpen = false">
+            Cancelar
+          </Button>
+          <Button type="submit" :disabled="submitting">
+            {{ submitting ? 'Salvando...' : 'Salvar no mês' }}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+
+    <!-- ============================================================ -->
+    <!-- DRAWER 2: DEFINIR RENDA DO MÊS & META DE GUARDAR -->
+    <!-- ============================================================ -->
+    <Sheet
+      v-model:open="planDrawerOpen"
+      :title="`Renda e Meta de ${periodLabel}`"
+      description="Defina quanto entra no mês e quanto querem separar antes do saldo livre."
+    >
+      <form class="space-y-5" @submit.prevent="handleSavePlan">
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            1. Renda total do mês (R$)
+          </label>
+          <input
+            v-model.number="incomeInput"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Ex: 16000"
+            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p class="text-[11px] text-muted-foreground">
+            Soma do que entra no mês para pagar as contas e viver.
+          </p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            2. Meta para guardar / investir no mês (R$)
+          </label>
+          <input
+            v-model.number="savingsInput"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Ex: 2000"
+            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p class="text-[11px] text-muted-foreground">
+            Valor que vocês separam logo no início ou ao longo do mês.
+          </p>
+        </div>
+
+        <div class="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 space-y-1.5">
+          <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            Simulação com suas contas atuais ({{ formatCurrency(totalMonthBills) }}):
+          </span>
+          <div class="text-xl font-bold text-emerald-700 dark:text-emerald-300">
+            Livre pra gastar: {{ formatCurrency((Number(incomeInput) || 0) - totalMonthBills - (Number(savingsInput) || 0)) }}
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="outline" @click="planDrawerOpen = false">
+            Cancelar
+          </Button>
+          <Button type="submit" :disabled="savingPlan">
+            {{ savingPlan ? 'Salvando...' : 'Salvar planejamento' }}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+
+    <!-- ============================================================ -->
+    <!-- DRAWER 3: FECHAMENTO DO MÊS ("QUANTO AINDA TEM NA CONTA?") -->
+    <!-- ============================================================ -->
+    <Sheet
+      v-model:open="checkinDrawerOpen"
+      :title="`Fechamento de ${periodLabel}`"
+      description="No fim do mês, informe quanto sobrou do saldo livre para fechar o balanço sem precisar anotar cada gasto."
+    >
+      <form class="space-y-5" @submit.prevent="handleSaveCheckin">
+        <div class="rounded-xl border border-border bg-muted/40 p-4 space-y-2 text-xs">
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">Renda do mês:</span>
+            <strong class="text-foreground">{{ formatCurrency(configuredIncome) }}</strong>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">(−) Contas do mês:</span>
+            <strong class="text-foreground">{{ formatCurrency(totalMonthBills) }}</strong>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">(−) Meta de guardar:</span>
+            <strong class="text-primary">{{ formatCurrency(configuredSavings) }}</strong>
+          </div>
+          <div class="flex justify-between border-t border-border pt-2 text-sm">
+            <span class="font-semibold text-foreground">(=) Tinha livre pra gastar:</span>
+            <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(freeToSpendAmount) }}</strong>
+          </div>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            Quanto ainda sobrou na conta hoje? (R$)
+          </label>
+          <input
+            v-model.number="leftoverInput"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Ex: 450,00"
+            required
+            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <p class="text-[11px] text-muted-foreground">
+            Com esse valor, calculamos quanto vocês gastaram no livre e quanto guardaram no total.
+          </p>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 border-t border-border pt-4">
+          <Button
+            v-if="endOfMonthLeftover != null"
+            type="button"
+            variant="ghost"
+            class="text-red-500 hover:text-red-600"
+            :disabled="savingCheckin"
+            @click="handleClearCheckin"
+          >
+            Reabrir mês
+          </Button>
+          <div class="ml-auto flex items-center gap-2">
+            <Button type="button" variant="outline" @click="checkinDrawerOpen = false">
+              Cancelar
+            </Button>
+            <Button type="submit" :disabled="savingCheckin">
+              {{ savingCheckin ? 'Salvando...' : 'Confirmar fechamento' }}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </Sheet>
   </div>
 </template>
 
 <style scoped>
-.dashboard {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 1rem 1.5rem 2rem;
-}
-
-@media (max-width: 640px) {
-  .dashboard {
-    padding: 0.75rem 1rem 1.5rem;
-  }
-}
-
-@media (max-width: 380px) {
-  .dashboard {
-    padding: 0.5rem 0.75rem 1rem;
-  }
-}
+/* Styled with Tailwind CSS */
 </style>
+

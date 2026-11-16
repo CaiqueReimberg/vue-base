@@ -1,8 +1,10 @@
 import type {
+  DebtExpenseCreateInput,
   InstallmentExpenseCreateInput,
   Transaction,
   TransactionCreateInput,
   TransactionsListResponse,
+  TransactionKind,
   TransactionType,
   TransactionUpdateInput,
 } from '@/types/transaction'
@@ -15,6 +17,8 @@ export const transactionsApi = {
 
   list(params?: {
     type?: TransactionType
+    kind?: TransactionKind
+    referenceMonth?: string
     accountId?: string
     cardId?: string
     page?: number
@@ -22,6 +26,8 @@ export const transactionsApi = {
   }): Promise<TransactionsListResponse> {
     const search = new URLSearchParams()
     if (params?.type) search.set('type', params.type)
+    if (params?.kind) search.set('kind', params.kind)
+    if (params?.referenceMonth) search.set('referenceMonth', params.referenceMonth)
     if (params?.accountId) search.set('accountId', params.accountId)
     if (params?.cardId) search.set('cardId', params.cardId)
     if (params?.page) search.set('page', String(params.page))
@@ -32,6 +38,13 @@ export const transactionsApi = {
 
   createExpense(data: TransactionCreateInput): Promise<Transaction> {
     return request<Transaction>('/transactions/expense', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  createDebtExpense(data: DebtExpenseCreateInput): Promise<Transaction> {
+    return request<Transaction>('/transactions/expense/debt', {
       method: 'POST',
       body: JSON.stringify(data),
     })

@@ -2,6 +2,16 @@ import type { PublicOwner } from './owner'
 
 export type TransactionType = 'expense' | 'income'
 
+/** Alinhado ao backend (`TransactionKind`). */
+export type TransactionKind =
+  | 'purchase'
+  | 'invoice_payment'
+  | 'transfer'
+  | 'adjustment'
+  | 'debt'
+
+export type DebtCategory = 'car' | 'home' | 'personal_loan' | 'student' | 'other'
+
 export interface TransactionRelationRef {
   id: string
   name?: string
@@ -20,7 +30,12 @@ export interface Transaction {
   installmentTotal?: number | null
   account?: TransactionRelationRef | null
   card?: TransactionRelationRef | null
+  category?: TransactionRelationRef | null
   owner?: PublicOwner | null
+  kind?: TransactionKind | null
+  debtCategory?: DebtCategory | null
+  referenceMonth?: string | null
+  notes?: string | null
 }
 
 export interface TransactionsListResponse {
@@ -50,6 +65,23 @@ export interface TransactionUpdateInput {
   description?: string
   occurredAt?: string
   isShared?: boolean
+  kind?: TransactionKind
+  debtCategory?: DebtCategory
+  referenceMonth?: string | null
+  notes?: string | null
+  installmentTotal?: number
+}
+
+export interface DebtExpenseCreateInput {
+  amount: number
+  /** Quantidade de parcelas do contrato (estimativa do total: parcela × parcelas). */
+  installmentTotal: number
+  description: string
+  occurredAt: string
+  debtCategory: DebtCategory
+  referenceMonth?: string
+  isShared?: boolean
+  notes?: string
 }
 
 export interface InstallmentExpenseCreateInput {
