@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CrudFormLayout from '@/components/crud/CrudFormLayout.vue'
+import { CurrencyInput } from '@/components/ui/currency-input'
 import { useAccountsStore } from '@/stores/accounts/accounts.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { AccountCreateInput, AccountType } from '@/types/account'
@@ -120,14 +121,11 @@ function cancel() {
         </select>
       </div>
       <div class="crud-form-group">
-        <label for="account-balance">Saldo inicial (R$)</label>
-        <input
+        <label for="account-balance">Saldo inicial</label>
+        <CurrencyInput
           id="account-balance"
-          v-model.number="initialBalance"
-          type="number"
-          step="0.01"
-          class="crud-form-input"
-          placeholder="1000"
+          v-model="initialBalance"
+          placeholder="1.000,00"
         />
       </div>
       <div class="crud-form-group crud-form-group--checkbox">

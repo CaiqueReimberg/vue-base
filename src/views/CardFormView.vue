@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CrudFormLayout from '@/components/crud/CrudFormLayout.vue'
+import { CurrencyInput } from '@/components/ui/currency-input'
 import { useCardsStore } from '@/stores/cards/cards.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { CardCreateInput } from '@/types/card'
@@ -125,15 +126,11 @@ function cancel() {
         </label>
       </div>
       <div class="crud-form-group">
-        <label for="card-limit">Limite (R$)</label>
-        <input
+        <label for="card-limit">Limite</label>
+        <CurrencyInput
           id="card-limit"
-          v-model.number="limitAmount"
-          type="number"
-          min="1"
-          step="0.01"
-          class="crud-form-input"
-          placeholder="5000"
+          v-model="limitAmount"
+          placeholder="5.000,00"
         />
       </div>
       <div class="crud-form-row">

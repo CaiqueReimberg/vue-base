@@ -127,6 +127,15 @@ function createSqliteDb() {
       UNIQUE(recurring_id, reference_month)
     );
 
+    CREATE TABLE IF NOT EXISTS recurring_month_overrides (
+      id TEXT PRIMARY KEY,
+      recurring_id TEXT NOT NULL REFERENCES recurrings(id) ON DELETE CASCADE,
+      reference_month TEXT NOT NULL,
+      amount REAL NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(recurring_id, reference_month)
+    );
+
     CREATE TABLE IF NOT EXISTS transactions (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -161,6 +170,20 @@ function createSqliteDb() {
       end_of_month_leftover REAL,
       closed_at TEXT,
       notes TEXT,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS invoice_analyses (
+      id TEXT PRIMARY KEY,
+      card_name TEXT NOT NULL,
+      reference_month TEXT NOT NULL,
+      total_amount REAL NOT NULL DEFAULT 0,
+      items_count INTEGER NOT NULL DEFAULT 0,
+      items_json TEXT NOT NULL,
+      is_shared INTEGER NOT NULL DEFAULT 1,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL,

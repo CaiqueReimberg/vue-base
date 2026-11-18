@@ -1,9 +1,10 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { getRouterParam, readBody } from 'h3'
 import { db } from '../../database'
 import { accounts } from '../../database/schema'
 import { notFound, requireAuthUser } from '../../utils/auth'
-import { assertUserBelongsToFamily } from '../../utils/household'
+import { roundMoney } from '../../utils/billing'
+import { assertUserBelongsToFamily, getHouseholdVisibility } from '../../utils/household'
 import { mapAccountsWithEffectiveBalance, netFlowsByAccountIds } from '../../utils/resources'
 
 export default defineEventHandler(async (event) => {
@@ -14,19 +15,22 @@ export default defineEventHandler(async (event) => {
     type?: string
     balance?: number
     initialBalance?: number
+    delta?: number
     bankName?: string | null
     isActive?: boolean
     shareWithPartner?: boolean
     familyId?: string | null
   }>(event)
 
+  const visibility = await getHouseholdVisibility(userId)
+
   const [account] = await db
     .select()
     .from(accounts)
-    .where(and(eq(accounts.id, id), eq(accounts.userId, userId)))
+    .where(and(eq(accounts.id, id), inArray(accounts.userId, visibility.memberIds)))
     .limit(1)
 
-  if (!account) {
+  if (!account || (account.userId !== userId && !account.shareWithPartner)) {
     notFound(`Conta com ID ${id} não encontrada`)
   }
 
@@ -40,16 +44,22 @@ export default defineEventHandler(async (event) => {
   if (body.isActive !== undefined) updates.isActive = body.isActive
   if (body.shareWithPartner !== undefined) updates.shareWithPartner = body.shareWithPartner
 
-  if (body.balance !== undefined) {
-    const netMap = await netFlowsByAccountIds([id])
-    const net = netMap.get(id) ?? 0
-    updates.initialBalance = Number(body.balance) - net
-    updates.balance = Number(body.balance)
+  const netMap = await netFlowsByAccountIds([id])
+  const net = netMap.get(id) ?? 0
+  const currentEffectiveBalance = Number(account.initialBalance) + net
+
+  if (body.delta !== undefined && Number.isFinite(Number(body.delta))) {
+    const nextBalance = Math.max(0, roundMoney(currentEffectiveBalance + Number(body.delta)))
+    updates.initialBalance = roundMoney(nextBalance - net)
+    updates.balance = nextBalance
+  } else if (body.balance !== undefined) {
+    const nextBalance = roundMoney(Number(body.balance))
+    updates.initialBalance = roundMoney(nextBalance - net)
+    updates.balance = nextBalance
   } else if (body.initialBalance !== undefined) {
-    const netMap = await netFlowsByAccountIds([id])
-    const net = netMap.get(id) ?? 0
-    updates.initialBalance = Number(body.initialBalance)
-    updates.balance = Number(body.initialBalance) + net
+    const nextInit = roundMoney(Number(body.initialBalance))
+    updates.initialBalance = nextInit
+    updates.balance = roundMoney(nextInit + net)
   }
 
   if (body.familyId !== undefined) {

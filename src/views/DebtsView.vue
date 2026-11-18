@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
+import { CurrencyInput } from '@/components/ui/currency-input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Car,
   Home,
@@ -69,6 +71,23 @@ const debts = ref<Transaction[]>([])
 
 const filterReferenceMonth = ref(currentReferenceMonth())
 const filterByReferenceMonth = ref(false)
+const scopeFilter = ref<'all' | 'shared' | 'individual'>('all')
+
+const filteredDebts = computed(() => {
+  if (scopeFilter.value === 'shared') {
+    return debts.value.filter((d) => Boolean(d.isShared))
+  }
+  if (scopeFilter.value === 'individual') {
+    return debts.value.filter((d) => !d.isShared)
+  }
+  return debts.value
+})
+
+const sharedDebtsTotal = computed(() =>
+  debts.value
+    .filter((d) => Boolean(d.isShared))
+    .reduce((acc, d) => acc + Number(d.amount || 0), 0),
+)
 
 const isFormOpen = ref(false)
 const editingId = ref<string | null>(null)
@@ -91,26 +110,26 @@ const debtToRemove = ref<Transaction | null>(null)
 const isEditing = computed(() => Boolean(editingId.value))
 
 const totalMonthlyInstallments = computed(() =>
-  debts.value.reduce((acc, d) => acc + Number(d.amount || 0), 0),
+  filteredDebts.value.reduce((acc, d) => acc + Number(d.amount || 0), 0),
 )
 
 const pendingMonthlyAmount = computed(() =>
-  debts.value
+  filteredDebts.value
     .filter((d) => d.status !== 'paid' && d.status !== 'cleared')
     .reduce((acc, d) => acc + Number(d.amount || 0), 0),
 )
 
 const paidMonthlyAmount = computed(() =>
-  debts.value
+  filteredDebts.value
     .filter((d) => d.status === 'paid' || d.status === 'cleared')
     .reduce((acc, d) => acc + Number(d.amount || 0), 0),
 )
 
 const paidDebtsCount = computed(
-  () => debts.value.filter((d) => d.status === 'paid' || d.status === 'cleared').length,
+  () => filteredDebts.value.filter((d) => d.status === 'paid' || d.status === 'cleared').length,
 )
 const pendingDebtsCount = computed(
-  () => debts.value.filter((d) => d.status !== 'paid' && d.status !== 'cleared').length,
+  () => filteredDebts.value.filter((d) => d.status !== 'paid' && d.status !== 'cleared').length,
 )
 
 const progressPercent = computed(() => {
@@ -129,7 +148,7 @@ function formatCurrency(value: number) {
 }
 
 function formatMonthLabel(ym: string | null | undefined) {
-  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return '—'
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ''
   const [y, m] = ym.split('-').map(Number)
   const d = new Date(y, m - 1, 1)
   return d.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
@@ -427,8 +446,22 @@ async function confirmRemove() {
       :title="isEditing ? 'Editar parcela / financiamento' : 'Novo financiamento ou parcelamento'"
       description="Escolha a categoria e informe quanto paga por mês."
     >
-      <div v-if="editLoading" class="py-8 text-center text-sm text-muted-foreground">
-        Carregando...
+      <div v-if="editLoading" class="space-y-5 py-2">
+        <div class="space-y-2">
+          <Skeleton class="h-3.5 w-20" />
+          <div class="grid grid-cols-3 gap-2">
+            <Skeleton v-for="n in 5" :key="n" class="h-14 rounded-xl" />
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <Skeleton class="h-3.5 w-28" />
+          <Skeleton class="h-10 w-full rounded-lg" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <Skeleton class="h-10 w-full rounded-lg" />
+          <Skeleton class="h-10 w-full rounded-lg" />
+        </div>
+        <Skeleton class="h-10 w-full rounded-lg" />
       </div>
 
       <form v-else class="space-y-5" @submit.prevent="submitForm">
@@ -481,17 +514,13 @@ async function confirmRemove() {
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1.5">
             <label for="debt-amount" class="text-xs font-medium text-foreground">
-              Parcela mensal (R$)
+              Parcela mensal
             </label>
-            <input
+            <CurrencyInput
               id="debt-amount"
-              v-model.number="amount"
-              type="number"
-              step="0.01"
-              min="0.01"
-              placeholder="2500,00"
+              v-model="amount"
+              placeholder="2.500,00"
               required
-              class="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
 
@@ -596,54 +625,120 @@ async function confirmRemove() {
     <!-- Resumo Focado no Mês (Sem multiplicar 30 anos na cara!) -->
     <Card>
       <CardContent class="p-5 space-y-4">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
-          <div>
-            <span class="text-xs font-medium text-muted-foreground">
-              Falta pagar no mês
-            </span>
-            <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-foreground">
-              {{ formatCurrency(pendingMonthlyAmount) }}
+        <template v-if="loading && debts.length === 0">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
+            <div v-for="n in 3" :key="n" :class="n > 1 ? 'sm:pl-6 space-y-2' : 'space-y-2'">
+              <Skeleton class="h-3.5 w-28" />
+              <Skeleton class="h-7 w-32" />
+              <Skeleton class="h-3 w-24" />
             </div>
-            <span class="text-xs text-muted-foreground">
-              {{ pendingDebtsCount }} {{ pendingDebtsCount === 1 ? 'parcela pendente' : 'parcelas pendentes' }}
-            </span>
           </div>
+          <Skeleton class="h-2 w-full rounded-full" />
+        </template>
 
-          <div class="sm:pl-6">
-            <span class="text-xs font-medium text-muted-foreground">
-              Já pago no mês
-            </span>
-            <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
-              {{ formatCurrency(paidMonthlyAmount) }}
-            </div>
-            <span class="text-xs text-muted-foreground">
-              {{ paidDebtsCount }} {{ paidDebtsCount === 1 ? 'parcela quitada' : 'parcelas quitadas' }}
-            </span>
-          </div>
-
-          <div class="sm:pl-6">
-            <span class="text-xs font-medium text-muted-foreground">
-              Comprometimento mensal
-            </span>
-            <div class="mt-1 flex items-baseline gap-1">
-              <span class="text-2xl font-bold tracking-tight tabular-nums text-muted-foreground">
-                {{ formatCurrency(totalMonthlyInstallments) }}
+        <template v-else>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
+            <div>
+              <span class="text-xs font-medium text-muted-foreground">
+                Falta pagar no mês
               </span>
-              <span class="text-xs text-muted-foreground">/mês</span>
+              <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-foreground">
+                {{ formatCurrency(pendingMonthlyAmount) }}
+              </div>
+              <span class="text-xs text-muted-foreground">
+                {{ pendingDebtsCount }} {{ pendingDebtsCount === 1 ? 'parcela pendente' : 'parcelas pendentes' }}
+              </span>
             </div>
-            <span class="text-xs text-muted-foreground">
-              {{ debts.length }} {{ debts.length === 1 ? 'contrato ativo' : 'contratos ativos' }}
-            </span>
-          </div>
-        </div>
 
-        <Progress
-          :model-value="progressPercent"
-          class="h-2"
-          indicator-class="bg-emerald-600 dark:bg-emerald-500"
-        />
+            <div class="sm:pl-6">
+              <span class="text-xs font-medium text-muted-foreground">
+                Já pago no mês
+              </span>
+              <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
+                {{ formatCurrency(paidMonthlyAmount) }}
+              </div>
+              <span class="text-xs text-muted-foreground">
+                {{ paidDebtsCount }} {{ paidDebtsCount === 1 ? 'parcela quitada' : 'parcelas quitadas' }}
+              </span>
+            </div>
+
+            <div class="sm:pl-6">
+              <span class="text-xs font-medium text-muted-foreground">
+                Comprometimento mensal
+              </span>
+              <div class="mt-1 flex items-baseline gap-1">
+                <span class="text-2xl font-bold tracking-tight tabular-nums text-muted-foreground">
+                  {{ formatCurrency(totalMonthlyInstallments) }}
+                </span>
+                <span class="text-xs text-muted-foreground">/mês</span>
+              </div>
+              <span class="text-xs text-muted-foreground">
+                {{ debts.length }} {{ debts.length === 1 ? 'contrato ativo' : 'contratos ativos' }}
+              </span>
+            </div>
+          </div>
+
+          <Progress
+            :model-value="progressPercent"
+            class="h-2"
+            indicator-class="bg-emerald-600 dark:bg-emerald-500"
+          />
+        </template>
       </CardContent>
     </Card>
+
+    <!-- Filtro: Todas vs Com meu Par (Casal) vs Individuais -->
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="inline-flex items-center rounded-xl border border-border bg-card p-1">
+        <button
+          type="button"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="
+            scopeFilter === 'all'
+              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="scopeFilter = 'all'"
+        >
+          Todas
+        </button>
+
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="
+            scopeFilter === 'shared'
+              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="scopeFilter = 'shared'"
+        >
+          <Users class="h-3.5 w-3.5 text-primary" />
+          <span>Com meu par (Casal)</span>
+        </button>
+
+        <button
+          type="button"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="
+            scopeFilter === 'individual'
+              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="scopeFilter = 'individual'"
+        >
+          Individuais
+        </button>
+      </div>
+
+      <div v-if="sharedDebtsTotal > 0" class="flex items-center gap-2 text-xs text-muted-foreground">
+        <Users class="h-3.5 w-3.5 text-primary" />
+        <span>
+          Total com o par: <strong class="text-foreground">{{ formatCurrency(sharedDebtsTotal) }}/mês</strong>
+          ({{ formatCurrency(sharedDebtsTotal / 2) }} / 50% pra cada)
+        </span>
+      </div>
+    </div>
 
     <!-- Estado de Carregamento / Erro -->
     <div
@@ -653,23 +748,53 @@ async function confirmRemove() {
       {{ error }}
     </div>
 
-    <div v-if="loading" class="py-12 text-center text-xs text-muted-foreground">
-      Carregando parcelas...
-    </div>
+    <Card v-if="loading && debts.length === 0">
+      <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3.5 px-5">
+        <Skeleton class="h-4 w-44" />
+        <Skeleton class="h-3.5 w-16" />
+      </CardHeader>
+      <CardContent class="p-0">
+        <ul class="divide-y divide-border" aria-label="Carregando parcelas">
+          <li
+            v-for="n in 4"
+            :key="n"
+            class="flex items-center justify-between gap-4 px-5 py-4"
+          >
+            <div class="flex items-center gap-3.5">
+              <Skeleton class="h-10 w-10 rounded-xl" />
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <Skeleton class="h-4 w-36" />
+                  <Skeleton class="h-4 w-16 rounded-full" />
+                </div>
+                <Skeleton class="h-3 w-32" />
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="space-y-1.5 text-right">
+                <Skeleton class="h-4 w-24" />
+                <Skeleton class="h-3 w-16 ml-auto" />
+              </div>
+              <Skeleton class="h-8 w-16 rounded-md" />
+            </div>
+          </li>
+        </ul>
+      </CardContent>
+    </Card>
 
     <!-- Lista Limpa de Financiamentos / Parcelas -->
-    <Card v-else-if="debts.length > 0">
+    <Card v-else-if="filteredDebts.length > 0">
       <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3.5 px-5">
         <CardTitle class="text-sm font-semibold">Seus Contratos & Parcelas</CardTitle>
         <span class="text-xs text-muted-foreground">
-          {{ debts.length }} {{ debts.length === 1 ? 'item' : 'itens' }}
+          {{ filteredDebts.length }} {{ filteredDebts.length === 1 ? 'item' : 'itens' }}
         </span>
       </CardHeader>
 
       <CardContent class="p-0">
         <ul class="divide-y divide-border" role="list">
           <li
-            v-for="t in debts"
+            v-for="t in filteredDebts"
             :key="t.id"
             class="flex flex-col justify-between gap-4 px-5 py-4 transition-colors hover:bg-muted/30 sm:flex-row sm:items-center"
           >

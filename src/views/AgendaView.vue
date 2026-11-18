@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { dashboardApi } from '@/api/dashboard.api'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useRecurringStore } from '@/stores/recurring/recurring.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { AgendaEvent, AgendaEventType } from '@/types/dashboard-commitment'
@@ -144,7 +145,18 @@ onMounted(() => loadMonth(currentReferenceMonth()))
       </div>
     </header>
 
-    <p v-if="loading" class="agenda-page__loading">Carregando agenda...</p>
+    <div v-if="loading" class="space-y-4">
+      <div v-for="n in 4" :key="n" class="flex items-start gap-4">
+        <Skeleton class="h-8 w-8 shrink-0 rounded-full" />
+        <div class="flex-1 rounded-xl border border-border p-4 space-y-2">
+          <Skeleton class="h-3 w-28" />
+          <div class="flex items-center justify-between">
+            <Skeleton class="h-4 w-40" />
+            <Skeleton class="h-4 w-20" />
+          </div>
+        </div>
+      </div>
+    </div>
     <p v-else-if="events.length === 0" class="agenda-page__empty">
       Nenhum vencimento ou fechamento neste mês.
     </p>

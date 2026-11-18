@@ -1,4 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
+
+const pkg = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8'),
+) as { version?: string }
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
@@ -7,6 +12,9 @@ export default defineNuxtConfig({
   pages: true,
   srcDir: 'src',
   serverDir: 'server',
+  imports: {
+    scan: false,
+  },
   components: [
     {
       path: '~/components',
@@ -26,10 +34,15 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     jwtSecret: process.env.JWT_SECRET || 'dualpact-super-secret-jwt-key-dev',
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    public: {
+      appVersion: pkg.version || '1.0.0',
+    },
   },
   app: {
     head: {
-      title: 'DuoPact — Controle Financeiro a Dois',
+      title: 'DuoPact Controle Financeiro a Dois',
       htmlAttrs: {
         lang: 'pt-BR',
       },

@@ -57,7 +57,7 @@ async function savePassword() {
 async function linkPartner() {
   const email = partnerEmailInput.value.trim()
   if (!email) {
-    toastStore.error('Informe o e-mail da outra pessoa.')
+    toastStore.error('Informe o email da outra pessoa.')
     return
   }
   linking.value = true
@@ -96,7 +96,7 @@ async function unlinkPartner() {
 
     <template v-else-if="profile">
       <section class="card">
-        <h2 class="card-title">E-mail</h2>
+        <h2 class="card-title">Email</h2>
         <p class="email-display">{{ profile.email }}</p>
       </section>
 
@@ -135,7 +135,7 @@ async function unlinkPartner() {
       <section class="card">
         <h2 class="card-title">Vínculo com outra pessoa</h2>
         <p class="card-desc">
-          Você pode se vincular a <strong>apenas uma</strong> outra conta pelo e-mail dela. Isso permite
+          Você pode se vincular a <strong>apenas uma</strong> outra conta pelo email dela. Isso permite
           compartilhar dados de família no app.
         </p>
 
@@ -155,7 +155,7 @@ async function unlinkPartner() {
 
         <form v-else class="stack" @submit.prevent="linkPartner">
           <div class="field">
-            <label for="partner-email">E-mail da outra pessoa</label>
+            <label for="partner-email">Email da outra pessoa</label>
             <input
               id="partner-email"
               v-model="partnerEmailInput"

@@ -17,7 +17,17 @@ export const users = dualpactSchema.table('users', {
   password: text('password').notNull(),
   name: text('name'),
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  invoiceAnalysisEnabled: boolean('invoice_analysis_enabled').notNull().default(false),
+  isAdmin: boolean('is_admin').notNull().default(false),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const featureFlags = dualpactSchema.table('feature_flags', {
+  key: text('key').primaryKey(),
+  label: text('label').notNull(),
+  description: text('description').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -124,6 +134,16 @@ export const recurringPayments = dualpactSchema.table('recurring_payments', {
   createdAt: text('created_at').notNull(),
 })
 
+export const recurringMonthOverrides = dualpactSchema.table('recurring_month_overrides', {
+  id: text('id').primaryKey(),
+  recurringId: text('recurring_id')
+    .notNull()
+    .references(() => recurrings.id, { onDelete: 'cascade' }),
+  referenceMonth: text('reference_month').notNull(),
+  amount: doublePrecision('amount').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const transactions = dualpactSchema.table('transactions', {
   id: text('id').primaryKey(),
   type: text('type').notNull(), // 'expense' | 'income'
@@ -160,6 +180,22 @@ export const monthlyPlans = dualpactSchema.table('monthly_plans', {
   endOfMonthLeftover: doublePrecision('end_of_month_leftover'),
   closedAt: text('closed_at'),
   notes: text('notes'),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const invoiceAnalyses = dualpactSchema.table('invoice_analyses', {
+  id: text('id').primaryKey(),
+  cardName: text('card_name').notNull(),
+  referenceMonth: text('reference_month').notNull(), // 'YYYY-MM'
+  totalAmount: doublePrecision('total_amount').notNull().default(0),
+  itemsCount: integer('items_count').notNull().default(0),
+  itemsJson: text('items_json').notNull(), // JSON array of parsed items
+  isShared: boolean('is_shared').notNull().default(true),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),

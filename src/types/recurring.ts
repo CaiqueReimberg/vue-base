@@ -25,6 +25,8 @@ export interface RecurringMonthlyItem {
   id: string
   name: string
   amount: number
+  baseAmount?: number
+  isMonthOverride?: boolean
   dueDay: number | null
   kind: RecurringKind
   transactionType: RecurringFlowType

@@ -2,31 +2,23 @@ import { defineStore } from 'pinia'
 
 const THEME_KEY = 'dualpact-theme'
 
-function getSystemTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'light'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
+export type Theme = 'light' | 'dark'
 
-function applyTheme(theme: 'light' | 'dark') {
+function applyTheme(theme: Theme) {
   if (typeof document !== 'undefined') {
     document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.classList.toggle('dark', theme === 'dark')
   }
 }
-
-export type Theme = 'light' | 'dark'
 
 export const useThemeStore = defineStore('theme', {
   state: () => ({
     theme: ((): Theme => {
-      if (typeof document !== 'undefined') {
-        const attr = document.documentElement.getAttribute('data-theme')
-        if (attr === 'light' || attr === 'dark') return attr
-      }
       if (typeof localStorage !== 'undefined') {
         const stored = localStorage.getItem(THEME_KEY) as Theme | null
         if (stored === 'light' || stored === 'dark') return stored
       }
-      return getSystemTheme()
+      return 'light'
     })(),
   }),
 
@@ -38,8 +30,11 @@ export const useThemeStore = defineStore('theme', {
 
   actions: {
     init() {
-      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(THEME_KEY) as Theme | null : null
-      const theme = (stored === 'light' || stored === 'dark') ? stored : getSystemTheme()
+      const stored =
+        typeof localStorage !== 'undefined'
+          ? (localStorage.getItem(THEME_KEY) as Theme | null)
+          : null
+      const theme: Theme = stored === 'dark' ? 'dark' : 'light'
       this.theme = theme
       applyTheme(theme)
     },

@@ -1,21 +1,22 @@
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
 import { useThemeStore } from '@/stores/theme/theme.store'
 import { useAuthStore } from '@/stores/auth/auth.store'
 import { storeToRefs } from 'pinia'
 import {
-  ArrowLeftRight,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
   CreditCard,
+  FileSpreadsheet,
   HeartHandshake,
-  Landmark,
   LayoutDashboard,
   LogOut,
   Moon,
   PiggyBank,
   Scale,
+  ShieldCheck,
   Sun,
   UserCircle,
 } from 'lucide-vue-next'
@@ -35,15 +36,33 @@ const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const { isDark } = storeToRefs(themeStore)
+const { invoiceAnalysisEnabled, isAdmin, featureFlags } = storeToRefs(authStore)
 
-const navItems = [
-  { to: '/', label: 'Início (Mês)', icon: LayoutDashboard, exact: true },
-  { to: '/monthly-control', label: 'Contas Fixas', icon: ClipboardCheck, exact: false },
-  { to: '/debts', label: 'Dívidas & Parcelas', icon: Scale, exact: false },
-  { to: '/cards', label: 'Cartões', icon: CreditCard, exact: false },
-  { to: '/accounts', label: 'Contas / Bancos', icon: Landmark, exact: false },
-  { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false },
+onMounted(() => {
+  if (!authStore.profileLoaded) {
+    authStore.fetchProfile()
+  }
+})
+
+const allNavItems = [
+  { to: '/', label: 'Início (Mês)', icon: LayoutDashboard, exact: true, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/accounts', label: 'Dinheiro Guardado (CDBs)', icon: PiggyBank, exact: false, moduleKey: 'accounts', requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/invoices', label: 'Análise de Faturas', icon: FileSpreadsheet, exact: false, moduleKey: 'invoices', requireInvoiceFlag: true, requireAdmin: false },
+  { to: '/monthly-control', label: 'Contas Fixas', icon: ClipboardCheck, exact: false, moduleKey: 'monthly_control', requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/debts', label: 'Dívidas & Parcelas', icon: Scale, exact: false, moduleKey: 'debts', requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/cards', label: 'Cartões', icon: CreditCard, exact: false, moduleKey: 'cards', requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false, moduleKey: 'agenda', requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/admin/users', label: 'Usuários & Features', icon: ShieldCheck, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: true },
 ] as const
+
+const navItems = computed(() =>
+  allNavItems.filter((item) => {
+    if (item.requireAdmin && !isAdmin.value) return false
+    if (item.moduleKey && featureFlags.value[item.moduleKey] === false) return false
+    if (item.requireInvoiceFlag && !invoiceAnalysisEnabled.value) return false
+    return true
+  }),
+)
 
 function toggleTheme() {
   themeStore.toggle()

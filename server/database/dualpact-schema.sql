@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS dualpact.users (
   password TEXT NOT NULL,
   name TEXT,
   family_id TEXT REFERENCES dualpact.families(id) ON DELETE SET NULL,
+  invoice_analysis_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -134,6 +136,19 @@ CREATE TABLE IF NOT EXISTS dualpact.recurring_payments (
 CREATE INDEX IF NOT EXISTS idx_dualpact_recurring_payments_month
   ON dualpact.recurring_payments(reference_month);
 
+-- 8b. Valores Ajustados por Mês em Contas Recorrentes Variáveis (ex: Luz, Água)
+CREATE TABLE IF NOT EXISTS dualpact.recurring_month_overrides (
+  id TEXT PRIMARY KEY,
+  recurring_id TEXT NOT NULL REFERENCES dualpact.recurrings(id) ON DELETE CASCADE,
+  reference_month TEXT NOT NULL, -- 'YYYY-MM'
+  amount DOUBLE PRECISION NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(recurring_id, reference_month)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dualpact_recurring_month_overrides_month
+  ON dualpact.recurring_month_overrides(reference_month);
+
 -- 9. Transações / Financiamentos / Parcelas (Dívidas)
 CREATE TABLE IF NOT EXISTS dualpact.transactions (
   id TEXT PRIMARY KEY,
@@ -181,3 +196,12 @@ CREATE TABLE IF NOT EXISTS dualpact.monthly_plans (
 
 CREATE INDEX IF NOT EXISTS idx_dualpact_monthly_plans_user_month
   ON dualpact.monthly_plans(user_id, reference_month);
+
+-- 11. Controle Global de Funcionalidades (Feature Flags de Módulos)
+CREATE TABLE IF NOT EXISTS dualpact.feature_flags (
+  key TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  description TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TEXT NOT NULL
+);

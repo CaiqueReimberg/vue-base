@@ -19,14 +19,29 @@ export const recurringApi = {
     })
   },
 
+  setMonthAmount(
+    id: string,
+    referenceMonth: string,
+    amount: number,
+  ): Promise<{ recurringId: string; referenceMonth: string; amount: number }> {
+    return request(`/recurring/${id}/month-amount`, {
+      method: 'PUT',
+      body: JSON.stringify({ referenceMonth, amount }),
+    })
+  },
+
   getMonthlyStatus(month: string): Promise<RecurringMonthlyStatusResponse> {
     return request(`/recurring/monthly-status?month=${encodeURIComponent(month)}`)
   },
 
-  markAsPaid(id: string, referenceMonth: string): Promise<{ paidAt: string; paid: boolean }> {
+  markAsPaid(
+    id: string,
+    referenceMonth: string,
+    amount?: number,
+  ): Promise<{ paidAt: string; paid: boolean }> {
     return request(`/recurring/${id}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ referenceMonth }),
+      body: JSON.stringify({ referenceMonth, ...(amount !== undefined ? { amount } : {}) }),
     })
   },
 

@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '../database'
-import { cards, categories, monthlyPlans, recurringPayments, transactions } from '../database/schema'
+import {
+  cards,
+  categories,
+  monthlyPlans,
+  recurringMonthOverrides,
+  recurringPayments,
+  transactions,
+} from '../database/schema'
 import {
   buildCyclesAroundReference,
   cycleContainingReference,
@@ -20,7 +27,7 @@ async function buildRecurringBillItems(userId: string, referenceMonth: string) {
   const recurringIds = recurrings.map((r) => r.id)
   const catIds = Array.from(new Set(recurrings.map((r) => r.categoryId).filter(Boolean) as string[]))
 
-  const [payments, catRows] = await Promise.all([
+  const [payments, overrides, catRows] = await Promise.all([
     recurringIds.length === 0
       ? Promise.resolve([])
       : db
@@ -32,27 +39,43 @@ async function buildRecurringBillItems(userId: string, referenceMonth: string) {
               eq(recurringPayments.referenceMonth, referenceMonth)
             )
           ),
+    recurringIds.length === 0
+      ? Promise.resolve([])
+      : db
+          .select()
+          .from(recurringMonthOverrides)
+          .where(
+            and(
+              inArray(recurringMonthOverrides.recurringId, recurringIds),
+              eq(recurringMonthOverrides.referenceMonth, referenceMonth)
+            )
+          ),
     catIds.length === 0
       ? Promise.resolve([])
       : db.select().from(categories).where(inArray(categories.id, catIds)),
   ])
 
   const paymentByRecurring = new Map(payments.map((p) => [p.recurringId, p]))
+  const overrideByRecurring = new Map(overrides.map((o) => [o.recurringId, Number(o.amount)]))
   const catMap = new Map(catRows.map((c) => [c.id, c.name]))
 
   return recurrings
     .filter((r) => r.transactionType === 'expense')
     .map((r) => {
       const payment = paymentByRecurring.get(r.id)
+      const overrideVal = overrideByRecurring.get(r.id)
       return {
         id: r.id,
         name: r.name,
-        value: Number(r.amount),
+        value: overrideVal !== undefined ? overrideVal : Number(r.amount),
+        baseValue: Number(r.amount),
+        isMonthOverride: overrideVal !== undefined,
         dueDay: r.dueDay,
         paid: Boolean(payment),
         paidAt: payment ? new Date(payment.paidAt).toISOString() : null,
         paidByUserId: payment?.userId ?? null,
         category: r.categoryId ? catMap.get(r.categoryId) ?? null : null,
+        isShared: Boolean(r.isShared),
         ownerId: r.userId,
       }
     })

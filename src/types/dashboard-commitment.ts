@@ -6,6 +6,7 @@ export interface RecurringBillCommitmentItem {
   paid: boolean
   paidAt?: string | null
   category?: string | null
+  isShared?: boolean
 }
 
 export interface CardInvoiceCommitmentItem {

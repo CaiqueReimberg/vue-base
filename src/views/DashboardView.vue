@@ -11,11 +11,14 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
+import { CurrencyInput } from '@/components/ui/currency-input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   useDashboardStore,
   type DashboardPaidItem,
   type DashboardPendingItem,
 } from '@/stores/dashboard/dashboard.store'
+import { useAccountsStore } from '@/stores/accounts/accounts.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import { recurringApi } from '@/api/recurring.api'
 import { transactionsApi } from '@/api/transactions.api'
@@ -27,6 +30,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   ExternalLink,
   Flag,
   GraduationCap,
@@ -45,7 +49,10 @@ import {
 } from 'lucide-vue-next'
 
 const dashboardStore = useDashboardStore()
+const accountsStore = useAccountsStore()
 const toastStore = useToastStore()
+
+const { accounts: vaultAccounts } = storeToRefs(accountsStore)
 
 const {
   loading,
@@ -73,9 +80,9 @@ const checkinDrawerOpen = ref(false)
 const leftoverInput = ref<number | ''>('')
 const savingCheckin = ref(false)
 
-// 3. Drawer: Nova Conta Fixa OU Financiamento/Parcela direto na Home!
+// 3. Drawer: Nova Conta Fixa, Fatura de Cartão OU Financiamento/Parcela direto na Home!
 const addDrawerOpen = ref(false)
-const addMode = ref<'recurring' | 'debt'>('recurring')
+const addMode = ref<'recurring' | 'card_invoice' | 'debt'>('recurring')
 const billName = ref('')
 const billAmount = ref<number | ''>('')
 const billDueDay = ref<number | ''>(10)
@@ -83,6 +90,16 @@ const billInstallments = ref<number | ''>(36)
 const billDebtCategory = ref<DebtCategory>('car')
 const billShared = ref(true)
 const submitting = ref(false)
+
+const CARD_INVOICE_PRESETS = [
+  'Fatura Nubank',
+  'Fatura Itaú',
+  'Fatura Inter',
+  'Fatura C6 Bank',
+  'Fatura XP',
+  'Fatura Santander',
+  'Fatura Bradesco',
+]
 
 const DEBT_CATEGORIES: Array<{
   value: DebtCategory
@@ -95,6 +112,47 @@ const DEBT_CATEGORIES: Array<{
   { value: 'student', shortLabel: 'Estudos', icon: GraduationCap },
   { value: 'other', shortLabel: 'Outro', icon: Receipt },
 ]
+
+// Filtro de divisão: Todas vs Com o Par (Casal) vs Individuais
+const scopeFilter = ref<'all' | 'shared' | 'individual'>('all')
+
+const filteredPendingItems = computed(() => {
+  if (scopeFilter.value === 'shared') {
+    return pendingItems.value.filter((i) => i.isShared || i.kind === 'savings')
+  }
+  if (scopeFilter.value === 'individual') {
+    return pendingItems.value.filter((i) => !i.isShared && i.kind !== 'savings')
+  }
+  return pendingItems.value
+})
+
+const filteredPaidItems = computed(() => {
+  if (scopeFilter.value === 'shared') {
+    return paidItems.value.filter((i) => i.isShared || i.kind === 'savings')
+  }
+  if (scopeFilter.value === 'individual') {
+    return paidItems.value.filter((i) => !i.isShared && i.kind !== 'savings')
+  }
+  return paidItems.value
+})
+
+const filteredPendingTotal = computed(() =>
+  filteredPendingItems.value.reduce((s, i) => s + i.amount, 0),
+)
+
+const filteredPaidTotal = computed(() =>
+  filteredPaidItems.value.reduce((s, i) => s + i.amount, 0),
+)
+
+const sharedTotalBills = computed(() => {
+  const pend = pendingItems.value
+    .filter((i) => i.isShared && i.kind !== 'savings')
+    .reduce((s, i) => s + i.amount, 0)
+  const paid = paidItems.value
+    .filter((i) => i.isShared && i.kind !== 'savings')
+    .reduce((s, i) => s + i.amount, 0)
+  return pend + paid
+})
 
 // Cálculos do modelo Anti-Planilha:
 // Renda do Mês − Contas do Mês − Quero Guardar = Livre pra Gastar
@@ -166,7 +224,10 @@ watch(
 )
 
 onMounted(async () => {
-  await dashboardStore.fetchSummary()
+  await Promise.all([
+    dashboardStore.fetchSummary(),
+    accountsStore.fetchAll(),
+  ])
   if (dashboardStore.error) {
     toastStore.error(dashboardStore.error)
   }
@@ -245,7 +306,7 @@ async function handleClearCheckin() {
   }
 }
 
-function openAddDrawer(mode: 'recurring' | 'debt' = 'recurring') {
+function openAddDrawer(mode: 'recurring' | 'card_invoice' | 'debt' = 'recurring') {
   addMode.value = mode
   billName.value = ''
   billAmount.value = ''
@@ -260,7 +321,7 @@ async function submitNewBill() {
   const name = billName.value.trim()
   const amount = Number(billAmount.value)
   if (!name || !amount || amount <= 0) {
-    toastStore.error('Informe o nome (ex: Carro, Casa, Luz) e o valor mensal.')
+    toastStore.error('Informe o nome e o valor mensal.')
     return
   }
 
@@ -269,7 +330,7 @@ async function submitNewBill() {
   const dayStr = String(Math.min(Math.max(Number(billDueDay.value) || 10, 1), 28)).padStart(2, '0')
 
   try {
-    if (addMode.value === 'recurring') {
+    if (addMode.value === 'recurring' || addMode.value === 'card_invoice') {
       await recurringApi.create({
         name,
         kind: 'fixed_bill',
@@ -316,13 +377,68 @@ async function handleCurrentMonth() {
   await dashboardStore.fetchSummary(ym)
 }
 
-async function handleMarkPaid(item: DashboardPendingItem) {
-  try {
-    await dashboardStore.markPendingItemAsPaid(item)
-    toastStore.success(`${item.title} marcado como pago!`)
-  } catch (e) {
-    toastStore.error(e instanceof Error ? e.message : 'Erro ao marcar como pago')
+// 4. Drawer: Ajustar valor do mês (ex: Luz que varia todo mês) ou Confirmar Pagamento
+const itemDrawerOpen = ref(false)
+const itemDrawerMode = ref<'pay' | 'edit'>('pay')
+const selectedItem = ref<DashboardPendingItem | DashboardPaidItem | null>(null)
+const selectedItemAmount = ref<number | ''>('')
+const selectedVaultAccountId = ref<string>('')
+const savingItemAction = ref(false)
+
+function openItemDrawer(
+  item: DashboardPendingItem | DashboardPaidItem,
+  mode: 'pay' | 'edit',
+) {
+  selectedItem.value = item
+  selectedItemAmount.value = item.amount
+  itemDrawerMode.value = mode
+  if (item.kind === 'savings' && vaultAccounts.value.length > 0 && !selectedVaultAccountId.value) {
+    selectedVaultAccountId.value = vaultAccounts.value[0].id
   }
+  itemDrawerOpen.value = true
+}
+
+async function handleConfirmItemDrawer(alsoMarkPaid = false) {
+  const item = selectedItem.value
+  if (!item) return
+  const numAmount = Number(selectedItemAmount.value)
+  if (!Number.isFinite(numAmount) || numAmount <= 0) {
+    toastStore.error('Informe um valor válido maior que zero.')
+    return
+  }
+
+  savingItemAction.value = true
+  try {
+    if (itemDrawerMode.value === 'pay' || alsoMarkPaid) {
+      await dashboardStore.markPendingItemAsPaid(
+        item as DashboardPendingItem,
+        numAmount,
+      )
+      if (item.kind === 'savings' && selectedVaultAccountId.value) {
+        const targetVault = vaultAccounts.value.find((a) => a.id === selectedVaultAccountId.value)
+        await accountsStore.adjustBalance(selectedVaultAccountId.value, numAmount)
+        toastStore.success(
+          `${formatCurrency.value(numAmount)} guardados em ${targetVault?.name ?? 'sua reserva'}!`,
+        )
+      } else {
+        toastStore.success(`${item.title} pago (${formatCurrency.value(numAmount)})!`)
+      }
+    } else {
+      await dashboardStore.updateItemMonthAmount(item, numAmount)
+      toastStore.success(
+        `Valor de ${item.title} ajustado para ${formatCurrency.value(numAmount)} neste mês!`,
+      )
+    }
+    itemDrawerOpen.value = false
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao atualizar conta')
+  } finally {
+    savingItemAction.value = false
+  }
+}
+
+async function handleMarkPaid(item: DashboardPendingItem) {
+  openItemDrawer(item, 'pay')
 }
 
 async function handleUnmarkPaid(item: DashboardPaidItem) {
@@ -420,7 +536,15 @@ async function handleRemovePending(item: DashboardPendingItem) {
       </div>
 
       <CardContent class="p-5">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <div v-if="loading && pendingItems.length === 0 && paidItems.length === 0" class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <div v-for="n in 4" :key="n" class="flex flex-col justify-between rounded-xl border border-border bg-background p-4 space-y-2.5">
+            <Skeleton class="h-3.5 w-24" />
+            <Skeleton class="h-7 w-32" />
+            <Skeleton class="h-3 w-36" />
+          </div>
+        </div>
+
+        <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <!-- Bloco 1: Renda do Mês -->
           <button
             type="button"
@@ -439,10 +563,10 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </span>
           </button>
 
-          <!-- Bloco 2: (-) Contas a Pagar no Mês -->
+          <!-- Bloco 2: Contas a Pagar no Mês -->
           <div class="flex flex-col justify-between rounded-xl border border-border bg-background p-4">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">2. (−) Contas do mês</span>
+              <span class="text-xs font-medium text-muted-foreground">2. Contas do mês</span>
               <Badge variant="secondary" class="text-[10px] px-1.5 py-0">
                 {{ totalBillsCount }} contas
               </Badge>
@@ -455,14 +579,14 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </span>
           </div>
 
-          <!-- Bloco 3: (-) Quero Guardar -->
+          <!-- Bloco 3: Quero Guardar -->
           <button
             type="button"
             class="group flex flex-col justify-between rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-primary/40"
             @click="openPlanDrawer"
           >
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">3. (−) Quero guardar</span>
+              <span class="text-xs font-medium text-muted-foreground">3. Quero guardar</span>
               <Badge
                 v-if="configuredSavings > 0"
                 :variant="isSavingsPaid ? 'success' : 'warning'"
@@ -486,7 +610,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </span>
           </button>
 
-          <!-- Bloco 4: (=) LIVRE PRA GASTAR -->
+          <!-- Bloco 4: LIVRE PRA GASTAR -->
           <div
             class="flex flex-col justify-between rounded-xl border p-4"
             :class="
@@ -500,7 +624,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
                 class="text-xs font-semibold uppercase tracking-wide"
                 :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
               >
-                = Livre pra gastar
+                4. Livre pra gastar
               </span>
               <Wallet
                 class="h-4 w-4"
@@ -564,27 +688,93 @@ async function handleRemovePending(item: DashboardPendingItem) {
     <!-- 2. PROGRESSO DAS CONTAS DO MÊS -->
     <Card>
       <CardContent class="p-4 space-y-3">
-        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div class="flex items-center gap-4">
-            <span class="font-medium text-foreground">
-              Falta pagar: <strong class="text-amber-600 dark:text-amber-400">{{ formatCurrency(pendingTotalAmount) }}</strong>
-            </span>
-            <span class="font-medium text-foreground">
-              Já paguei: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(paidTotalAmount) }}</strong>
+        <template v-if="loading && pendingItems.length === 0 && paidItems.length === 0">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-4">
+              <Skeleton class="h-4 w-36" />
+              <Skeleton class="h-4 w-36" />
+            </div>
+            <Skeleton class="h-4 w-40" />
+          </div>
+          <Skeleton class="h-2 w-full rounded-full" />
+        </template>
+
+        <template v-else>
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-4">
+              <span class="font-medium text-foreground">
+                Falta pagar: <strong class="text-amber-600 dark:text-amber-400">{{ formatCurrency(pendingTotalAmount) }}</strong>
+              </span>
+              <span class="font-medium text-foreground">
+                Já paguei: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(paidTotalAmount) }}</strong>
+              </span>
+            </div>
+            <span class="text-muted-foreground">
+              {{ paidItems.length }} de {{ totalItemsCount }} contas pagas ({{ monthPaymentProgressPercent }}%)
             </span>
           </div>
-          <span class="text-muted-foreground">
-            {{ paidItems.length }} de {{ totalItemsCount }} contas pagas ({{ monthPaymentProgressPercent }}%)
-          </span>
-        </div>
 
-        <Progress
-          :model-value="monthPaymentProgressPercent"
-          class="h-2"
-          indicator-class="bg-emerald-600 dark:bg-emerald-500"
-        />
+          <Progress
+            :model-value="monthPaymentProgressPercent"
+            class="h-2"
+            indicator-class="bg-emerald-600 dark:bg-emerald-500"
+          />
+        </template>
       </CardContent>
     </Card>
+
+    <!-- Barra de Filtro: Todas vs Com o Par (Casal) vs Individuais -->
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="inline-flex items-center rounded-xl border border-border bg-card p-1">
+        <button
+          type="button"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="
+            scopeFilter === 'all'
+              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="scopeFilter = 'all'"
+        >
+          Todas as contas
+        </button>
+
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="
+            scopeFilter === 'shared'
+              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="scopeFilter = 'shared'"
+        >
+          <Users class="h-3.5 w-3.5 text-primary" />
+          <span>Com meu par (Casal)</span>
+        </button>
+
+        <button
+          type="button"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="
+            scopeFilter === 'individual'
+              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+              : 'text-muted-foreground hover:text-foreground'
+          "
+          @click="scopeFilter = 'individual'"
+        >
+          Individuais
+        </button>
+      </div>
+
+      <div v-if="sharedTotalBills > 0" class="flex items-center gap-2 text-xs text-muted-foreground">
+        <Users class="h-3.5 w-3.5 text-primary" />
+        <span>
+          Total do casal: <strong class="text-foreground">{{ formatCurrency(sharedTotalBills) }}</strong>
+          ({{ formatCurrency(sharedTotalBills / 2) }} / 50% pra cada)
+        </span>
+      </div>
+    </div>
 
     <!-- 3. DUAS COLUNAS: FALTA PAGAR vs JÁ PAGUEI -->
     <section class="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -593,47 +783,71 @@ async function handleRemovePending(item: DashboardPendingItem) {
         <CardHeader class="flex flex-row items-center justify-between border-b border-border py-4">
           <div class="flex items-center gap-2">
             <CardTitle class="text-sm font-semibold">Falta Pagar no Mês</CardTitle>
-            <Badge :variant="pendingItems.length > 0 ? 'warning' : 'secondary'">
-              {{ pendingItems.length }}
+            <Skeleton v-if="loading && pendingItems.length === 0" class="h-5 w-6 rounded-full" />
+            <Badge v-else :variant="filteredPendingItems.length > 0 ? 'warning' : 'secondary'">
+              {{ filteredPendingItems.length }}
             </Badge>
           </div>
-          <span class="text-sm font-semibold tabular-nums text-foreground">
-            {{ formatCurrency(pendingTotalAmount) }}
+          <Skeleton v-if="loading && pendingItems.length === 0" class="h-5 w-24" />
+          <span v-else class="text-sm font-semibold tabular-nums text-foreground">
+            {{ formatCurrency(filteredPendingTotal) }}
           </span>
         </CardHeader>
 
         <CardContent class="flex-1 p-0">
-          <div
+          <ul
             v-if="loading && pendingItems.length === 0"
-            class="py-12 text-center text-xs text-muted-foreground"
+            class="divide-y divide-border"
+            aria-label="Carregando contas pendentes"
           >
-            Carregando...
-          </div>
+            <li
+              v-for="n in 4"
+              :key="n"
+              class="flex items-center justify-between gap-3 px-5 py-3.5"
+            >
+              <div class="flex items-center gap-2.5">
+                <Skeleton class="h-4 w-32" />
+                <Skeleton class="h-4 w-16 rounded-full" />
+              </div>
+              <div class="flex items-center gap-2.5">
+                <Skeleton class="h-4 w-20" />
+                <Skeleton class="h-7 w-16 rounded-md" />
+              </div>
+            </li>
+          </ul>
 
           <div
-            v-else-if="pendingItems.length === 0"
+            v-else-if="filteredPendingItems.length === 0"
             class="flex flex-col items-center justify-center py-12 px-4 text-center"
           >
             <CheckCircle2 class="h-8 w-8 text-emerald-500/80 mb-2" />
             <p class="text-sm font-medium text-foreground">Tudo pago neste mês!</p>
             <p class="text-xs text-muted-foreground mt-0.5">
-              Nenhuma conta pendente. O saldo livre é todo de vocês.
+              Nenhuma conta pendente neste filtro.
             </p>
           </div>
 
           <ul v-else class="divide-y divide-border" role="list">
             <li
-              v-for="item in pendingItems"
+              v-for="item in filteredPendingItems"
               :key="item.id"
               class="group flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors"
               :class="item.kind === 'savings' ? 'bg-primary/5' : ''"
             >
               <div class="min-w-0">
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <PiggyBank v-if="item.kind === 'savings'" class="h-4 w-4 shrink-0 text-primary" />
                   <p class="truncate text-sm font-medium text-foreground">
                     {{ item.title }}
                   </p>
+                  <Badge
+                    v-if="item.isShared"
+                    variant="outline"
+                    class="gap-1 text-[10px] px-1.5 py-0 font-normal"
+                  >
+                    <Users class="h-2.5 w-2.5 text-primary" />
+                    Casal
+                  </Badge>
                   <Badge
                     v-if="item.kind === 'savings'"
                     variant="secondary"
@@ -658,7 +872,17 @@ async function handleRemovePending(item: DashboardPendingItem) {
               </div>
 
               <div class="flex shrink-0 items-center gap-2.5">
-                <span class="text-sm font-semibold tabular-nums text-foreground">
+                <button
+                  v-if="item.kind !== 'invoice'"
+                  type="button"
+                  class="group/price inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold tabular-nums text-foreground transition-colors hover:bg-muted hover:text-primary"
+                  title="Clique para ajustar o valor deste mês (ex: conta de luz variável)"
+                  @click="openItemDrawer(item, 'edit')"
+                >
+                  <span>{{ formatCurrency(item.amount) }}</span>
+                  <Pencil class="h-3 w-3 text-muted-foreground opacity-60 group-hover/price:opacity-100 group-hover/price:text-primary" />
+                </button>
+                <span v-else class="text-sm font-semibold tabular-nums text-foreground">
                   {{ formatCurrency(item.amount) }}
                 </span>
 
@@ -701,25 +925,44 @@ async function handleRemovePending(item: DashboardPendingItem) {
         <CardHeader class="flex flex-row items-center justify-between border-b border-border py-4">
           <div class="flex items-center gap-2">
             <CardTitle class="text-sm font-semibold">Já Paguei</CardTitle>
-            <Badge variant="success">
-              {{ paidItems.length }}
+            <Skeleton v-if="loading && paidItems.length === 0" class="h-5 w-6 rounded-full" />
+            <Badge v-else variant="success">
+              {{ filteredPaidItems.length }}
             </Badge>
           </div>
-          <span class="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            {{ formatCurrency(paidTotalAmount) }}
+          <Skeleton v-if="loading && paidItems.length === 0" class="h-5 w-24" />
+          <span v-else class="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+            {{ formatCurrency(filteredPaidTotal) }}
           </span>
         </CardHeader>
 
         <CardContent class="flex-1 p-0">
-          <div
+          <ul
             v-if="loading && paidItems.length === 0"
-            class="py-12 text-center text-xs text-muted-foreground"
+            class="divide-y divide-border"
+            aria-label="Carregando contas pagas"
           >
-            Carregando...
-          </div>
+            <li
+              v-for="n in 4"
+              :key="n"
+              class="flex items-center justify-between gap-3 px-5 py-3.5"
+            >
+              <div class="flex items-center gap-2.5">
+                <Skeleton class="h-4 w-4 rounded-full" />
+                <div class="space-y-1.5">
+                  <Skeleton class="h-4 w-28" />
+                  <Skeleton class="h-3 w-20" />
+                </div>
+              </div>
+              <div class="flex items-center gap-2.5">
+                <Skeleton class="h-4 w-20" />
+                <Skeleton class="h-7 w-7 rounded-md" />
+              </div>
+            </li>
+          </ul>
 
           <div
-            v-else-if="paidItems.length === 0"
+            v-else-if="filteredPaidItems.length === 0"
             class="flex flex-col items-center justify-center py-12 px-4 text-center"
           >
             <p class="text-sm font-medium text-muted-foreground">
@@ -732,16 +975,26 @@ async function handleRemovePending(item: DashboardPendingItem) {
 
           <ul v-else class="divide-y divide-border" role="list">
             <li
-              v-for="item in paidItems"
+              v-for="item in filteredPaidItems"
               :key="item.id"
               class="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors"
             >
               <div class="flex min-w-0 items-center gap-2.5">
                 <CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <div class="min-w-0">
-                  <p class="truncate text-sm font-medium text-foreground">
-                    {{ item.title }}
-                  </p>
+                  <div class="flex items-center gap-2">
+                    <p class="truncate text-sm font-medium text-foreground">
+                      {{ item.title }}
+                    </p>
+                    <Badge
+                      v-if="item.isShared"
+                      variant="outline"
+                      class="gap-1 text-[10px] px-1.5 py-0 font-normal"
+                    >
+                      <Users class="h-2.5 w-2.5 text-primary" />
+                      Casal
+                    </Badge>
+                  </div>
                   <p class="text-[11px] text-muted-foreground">
                     {{ item.paidDateLabel }}
                   </p>
@@ -749,7 +1002,17 @@ async function handleRemovePending(item: DashboardPendingItem) {
               </div>
 
               <div class="flex shrink-0 items-center gap-2.5">
-                <span class="text-sm font-medium tabular-nums text-muted-foreground">
+                <button
+                  v-if="item.kind !== 'invoice'"
+                  type="button"
+                  class="group/price inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-medium tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  title="Clique para ajustar o valor pago neste mês"
+                  @click="openItemDrawer(item, 'edit')"
+                >
+                  <span>{{ formatCurrency(item.amount) }}</span>
+                  <Pencil class="h-3 w-3 opacity-0 group-hover/price:opacity-100" />
+                </button>
+                <span v-else class="text-sm font-medium tabular-nums text-muted-foreground">
                   {{ formatCurrency(item.amount) }}
                 </span>
 
@@ -772,19 +1035,19 @@ async function handleRemovePending(item: DashboardPendingItem) {
     </section>
 
     <!-- ============================================================ -->
-    <!-- DRAWER 1: ADICIONAR CONTA FIXA OU FINANCIAMENTO SEM SAIR DA HOME -->
+    <!-- DRAWER 1: ADICIONAR CONTA FIXA, FATURA DE CARTÃO OU FINANCIAMENTO -->
     <!-- ============================================================ -->
     <Sheet
       v-model:open="addDrawerOpen"
       title="Adicionar conta ao mês"
-      description="Cadastre uma conta fixa mensal ou parcela de financiamento sem sair do painel."
+      description="Cadastre uma conta fixa, fatura de cartão (com valor variável por mês) ou financiamento."
     >
       <form class="space-y-5" @submit.prevent="submitNewBill">
-        <!-- Seletor: Conta Fixa vs Financiamento/Parcela -->
-        <div class="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
+        <!-- Seletor: Conta Fixa vs Fatura Cartão vs Financiamento/Parcela -->
+        <div class="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
           <button
             type="button"
-            class="flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all"
+            class="flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all"
             :class="
               addMode === 'recurring'
                 ? 'bg-background text-foreground shadow-2xs'
@@ -793,12 +1056,26 @@ async function handleRemovePending(item: DashboardPendingItem) {
             @click="addMode = 'recurring'"
           >
             <Repeat class="h-3.5 w-3.5" />
-            <span>Conta Fixa Mensal</span>
+            <span>Conta Fixa</span>
           </button>
 
           <button
             type="button"
-            class="flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all"
+            class="flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all"
+            :class="
+              addMode === 'card_invoice'
+                ? 'bg-background text-foreground shadow-2xs'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            @click="addMode = 'card_invoice'"
+          >
+            <CreditCard class="h-3.5 w-3.5" />
+            <span>Fatura Cartão</span>
+          </button>
+
+          <button
+            type="button"
+            class="flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all"
             :class="
               addMode === 'debt'
                 ? 'bg-background text-foreground shadow-2xs'
@@ -807,8 +1084,26 @@ async function handleRemovePending(item: DashboardPendingItem) {
             @click="addMode = 'debt'"
           >
             <Car class="h-3.5 w-3.5" />
-            <span>Financiamento / Parcela</span>
+            <span>Financiamento</span>
           </button>
+        </div>
+
+        <!-- Se for Fatura de Cartão, mostra sugestões rápidas de bancos -->
+        <div v-if="addMode === 'card_invoice'" class="space-y-2">
+          <label class="text-xs font-medium text-muted-foreground">
+            Escolha rápida do cartão (ou digite abaixo):
+          </label>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="preset in CARD_INVOICE_PRESETS"
+              :key="preset"
+              type="button"
+              class="rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10"
+              @click="billName = preset"
+            >
+              {{ preset }}
+            </button>
+          </div>
         </div>
 
         <!-- Se for Financiamento, mostra os ícones de categoria -->
@@ -837,34 +1132,41 @@ async function handleRemovePending(item: DashboardPendingItem) {
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">
-            {{ addMode === 'recurring' ? 'Nome da conta' : 'Nome do financiamento / parcela' }}
+            {{
+              addMode === 'card_invoice'
+                ? 'Nome da fatura / cartão'
+                : addMode === 'recurring'
+                  ? 'Nome da conta'
+                  : 'Nome do financiamento / parcela'
+            }}
           </label>
           <input
             v-model="billName"
             type="text"
             :placeholder="
-              addMode === 'recurring'
-                ? 'Ex: Luz, Internet, Condomínio, Aluguel...'
-                : 'Ex: Financiamento Carro, Parcela Casa...'
+              addMode === 'card_invoice'
+                ? 'Ex: Fatura Nubank, Fatura Itaú...'
+                : addMode === 'recurring'
+                  ? 'Ex: Luz, Internet, Condomínio, Aluguel...'
+                  : 'Ex: Financiamento Carro, Parcela Casa...'
             "
             required
             class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
+          <p v-if="addMode === 'card_invoice'" class="text-[11px] text-muted-foreground">
+            A fatura entra todo mês e você pode alterar o valor de cada mês clicando no preço quando ela fechar.
+          </p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-foreground">
-              Valor no mês (R$)
+              Valor no mês
             </label>
-            <input
-              v-model.number="billAmount"
-              type="number"
-              step="0.01"
-              min="0.01"
-              placeholder="0,00"
+            <CurrencyInput
+              v-model="billAmount"
+              placeholder="150,00"
               required
-              class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -941,15 +1243,11 @@ async function handleRemovePending(item: DashboardPendingItem) {
       <form class="space-y-5" @submit.prevent="handleSavePlan">
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">
-            1. Renda total do mês (R$)
+            1. Renda total do mês
           </label>
-          <input
-            v-model.number="incomeInput"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Ex: 16000"
-            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          <CurrencyInput
+            v-model="incomeInput"
+            placeholder="Ex: 16.000,00"
           />
           <p class="text-[11px] text-muted-foreground">
             Soma do que entra no mês para pagar as contas e viver.
@@ -958,15 +1256,11 @@ async function handleRemovePending(item: DashboardPendingItem) {
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">
-            2. Meta para guardar / investir no mês (R$)
+            2. Meta para guardar / investir no mês
           </label>
-          <input
-            v-model.number="savingsInput"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Ex: 2000"
-            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          <CurrencyInput
+            v-model="savingsInput"
+            placeholder="Ex: 2.000,00"
           />
           <p class="text-[11px] text-muted-foreground">
             Valor que vocês separam logo no início ou ao longo do mês.
@@ -1008,31 +1302,27 @@ async function handleRemovePending(item: DashboardPendingItem) {
             <strong class="text-foreground">{{ formatCurrency(configuredIncome) }}</strong>
           </div>
           <div class="flex justify-between">
-            <span class="text-muted-foreground">(−) Contas do mês:</span>
+            <span class="text-muted-foreground">Contas do mês:</span>
             <strong class="text-foreground">{{ formatCurrency(totalMonthBills) }}</strong>
           </div>
           <div class="flex justify-between">
-            <span class="text-muted-foreground">(−) Meta de guardar:</span>
+            <span class="text-muted-foreground">Meta de guardar:</span>
             <strong class="text-primary">{{ formatCurrency(configuredSavings) }}</strong>
           </div>
           <div class="flex justify-between border-t border-border pt-2 text-sm">
-            <span class="font-semibold text-foreground">(=) Tinha livre pra gastar:</span>
+            <span class="font-semibold text-foreground">Tinha livre pra gastar:</span>
             <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(freeToSpendAmount) }}</strong>
           </div>
         </div>
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">
-            Quanto ainda sobrou na conta hoje? (R$)
+            Quanto ainda sobrou na conta hoje?
           </label>
-          <input
-            v-model.number="leftoverInput"
-            type="number"
-            step="0.01"
-            min="0"
+          <CurrencyInput
+            v-model="leftoverInput"
             placeholder="Ex: 450,00"
             required
-            class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
           <p class="text-[11px] text-muted-foreground">
             Com esse valor, calculamos quanto vocês gastaram no livre e quanto guardaram no total.
@@ -1058,6 +1348,93 @@ async function handleRemovePending(item: DashboardPendingItem) {
               {{ savingCheckin ? 'Salvando...' : 'Confirmar fechamento' }}
             </Button>
           </div>
+        </div>
+      </form>
+    </Sheet>
+
+    <!-- ============================================================ -->
+    <!-- DRAWER 4: CONFIRMAR VALOR AO PAGAR OU AJUSTAR VALOR SÓ DO MÊS -->
+    <!-- ============================================================ -->
+    <Sheet
+      v-model:open="itemDrawerOpen"
+      :title="
+        itemDrawerMode === 'pay'
+          ? `Pagar ${selectedItem?.title ?? 'conta'}`
+          : `Valor de ${selectedItem?.title ?? 'conta'} em ${periodLabel}`
+      "
+      :description="
+        itemDrawerMode === 'pay'
+          ? 'Confirme o valor exato da fatura/boleto deste mês para dar baixa.'
+          : 'Altere o valor apenas para este mês (os demais meses continuam com o valor base).'
+      "
+    >
+      <form class="space-y-5" @submit.prevent="handleConfirmItemDrawer(false)">
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            Valor em {{ periodLabel }}
+          </label>
+          <CurrencyInput
+            v-model="selectedItemAmount"
+            placeholder="0,00"
+            required
+          />
+          <p class="text-[11px] text-muted-foreground">
+            Se a conta veio diferente neste mês (ex: Luz, Água), digite o valor real aqui sem afetar os outros meses.
+          </p>
+        </div>
+
+        <!-- Se for o item "Quero guardar", permite somar direto em um dos CDBs / Reservas -->
+        <div
+          v-if="selectedItem?.kind === 'savings' && vaultAccounts.length > 0"
+          class="space-y-2 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3.5"
+        >
+          <label class="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            <PiggyBank class="h-3.5 w-3.5" />
+            <span>Em qual CDB / Reserva você guardou esse valor?</span>
+          </label>
+          <select
+            v-model="selectedVaultAccountId"
+            class="flex h-9 w-full rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Apenas marcar como guardado (sem somar em conta)</option>
+            <option v-for="acc in vaultAccounts" :key="acc.id" :value="acc.id">
+              {{ acc.name }} (Saldo atual: {{ formatCurrency(acc.balance) }})
+            </option>
+          </select>
+          <p class="text-[11px] text-muted-foreground">
+            O valor será somado automaticamente ao saldo do CDB escolhido ao confirmar.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="outline" @click="itemDrawerOpen = false">
+            Cancelar
+          </Button>
+
+          <Button
+            v-if="itemDrawerMode === 'edit' && selectedItem && 'canMarkPaid' in selectedItem && selectedItem.canMarkPaid"
+            type="button"
+            variant="secondary"
+            class="gap-1.5"
+            :disabled="savingItemAction"
+            @click="handleConfirmItemDrawer(true)"
+          >
+            <Check class="h-3.5 w-3.5" />
+            <span>Salvar e já marcar como pago</span>
+          </Button>
+
+          <Button type="submit" class="gap-1.5" :disabled="savingItemAction">
+            <Check v-if="itemDrawerMode === 'pay'" class="h-3.5 w-3.5" />
+            <span>
+              {{
+                savingItemAction
+                  ? 'Salvando...'
+                  : itemDrawerMode === 'pay'
+                    ? 'Confirmar pagamento'
+                    : 'Salvar valor do mês'
+              }}
+            </span>
+          </Button>
         </div>
       </form>
     </Sheet>

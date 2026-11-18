@@ -4,18 +4,22 @@ import { getRouterParam, readBody } from 'h3'
 import { db } from '../../../database'
 import { recurringPayments } from '../../../database/schema'
 import { badRequest, requireAuthUser } from '../../../utils/auth'
-import { findOneVisibleRecurring } from '../../../utils/recurring'
+import { findOneVisibleRecurring, setRecurringMonthAmount } from '../../../utils/recurring'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
   const recurringId = getRouterParam(event, 'id')!
-  const body = await readBody<{ referenceMonth?: string }>(event)
+  const body = await readBody<{ referenceMonth?: string; amount?: number }>(event)
 
   if (!body?.referenceMonth) {
     badRequest('Informe referenceMonth')
   }
 
   await findOneVisibleRecurring(userId, recurringId)
+
+  if (body.amount !== undefined && Number.isFinite(Number(body.amount)) && Number(body.amount) > 0) {
+    await setRecurringMonthAmount(userId, recurringId, body.referenceMonth, Number(body.amount))
+  }
 
   const [existing] = await db
     .select()

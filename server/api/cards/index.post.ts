@@ -3,10 +3,15 @@ import { readBody } from 'h3'
 import { db } from '../../database'
 import { cards } from '../../database/schema'
 import { badRequest, requireAuthUser } from '../../utils/auth'
-import { assertUserBelongsToFamily, getPublicUsersMap } from '../../utils/household'
+import {
+  assertFeatureFlagEnabled,
+  assertUserBelongsToFamily,
+  getPublicUsersMap,
+} from '../../utils/household'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
+  await assertFeatureFlagEnabled('cards', 'O módulo de Cartões')
   const body = await readBody<{
     name?: string
     limitAmount?: number

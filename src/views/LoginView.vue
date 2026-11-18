@@ -13,6 +13,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { HeartHandshake } from 'lucide-vue-next'
 
+const config = useRuntimeConfig()
+const appVersion = config.public.appVersion || '1.0.0'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -41,7 +43,7 @@ function setMode(next: Mode) {
 async function submitLogin() {
   error.value = ''
   if (!email.value.trim()) {
-    error.value = 'Informe o e-mail.'
+    error.value = 'Informe o email.'
     return
   }
   if (!password.value) {
@@ -61,7 +63,7 @@ async function submitLogin() {
     const redirect = (route.query.redirect as string) || '/'
     await router.push(redirect)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Falha ao entrar. Verifique e-mail e senha.'
+    error.value = e instanceof Error ? e.message : 'Falha ao entrar. Verifique email e senha.'
   } finally {
     loading.value = false
   }
@@ -75,7 +77,7 @@ async function submitRegister() {
     return
   }
   if (!email.value.trim()) {
-    error.value = 'Informe o e-mail.'
+    error.value = 'Informe o email.'
     return
   }
   if (!password.value) {
@@ -202,7 +204,7 @@ async function submit() {
 
           <div class="space-y-1.5">
             <label for="login-email" class="block text-xs font-medium text-foreground">
-              E-mail
+              Email
             </label>
             <input
               id="login-email"
@@ -259,6 +261,12 @@ async function submit() {
             }}
           </Button>
         </form>
+
+        <div class="mt-5 text-center text-[11px] text-muted-foreground">
+          <span>DuoPact</span>
+          <span class="mx-1">•</span>
+          <span class="font-mono">v{{ appVersion }}</span>
+        </div>
       </CardContent>
     </Card>
   </div>

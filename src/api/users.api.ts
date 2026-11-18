@@ -4,10 +4,40 @@ export interface UserProfile {
   id: string
   email: string
   name: string | null
+  invoiceAnalysisEnabled: boolean
+  isAdmin: boolean
+  features?: Record<string, boolean>
   createdAt: string
   updatedAt: string
   family: { id: string; name: string } | null
   partner: { id: string; email: string; name: string | null } | null
+}
+
+export interface SystemFeatureFlagItem {
+  key: string
+  label: string
+  description: string
+  enabled: boolean
+  updatedAt: string
+}
+
+export interface AdminUserItem {
+  id: string
+  email: string
+  name: string | null
+  hasPartner: boolean
+  invoiceAnalysisEnabled: boolean
+  isAdmin: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminUsersPaginatedResponse {
+  items: AdminUserItem[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 export interface UpdateMePayload {
@@ -37,5 +67,39 @@ export const usersApi = {
 
   unlinkPartner(): Promise<UserProfile> {
     return request<UserProfile>('/users/me/partner', { method: 'DELETE' })
+  },
+
+  listAdminUsers(params?: {
+    page?: number
+    pageSize?: number
+    search?: string
+  }): Promise<AdminUsersPaginatedResponse> {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.pageSize) qs.set('pageSize', String(params.pageSize))
+    if (params?.search) qs.set('search', params.search)
+    const query = qs.toString() ? `?${qs.toString()}` : ''
+    return request<AdminUsersPaginatedResponse>(`/admin/users${query}`)
+  },
+
+  updateAdminUserFlags(
+    userId: string,
+    payload: { invoiceAnalysisEnabled?: boolean; isAdmin?: boolean },
+  ): Promise<AdminUserItem> {
+    return request<AdminUserItem>(`/admin/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  listSystemFeatures(): Promise<SystemFeatureFlagItem[]> {
+    return request<SystemFeatureFlagItem[]>('/admin/features')
+  },
+
+  updateSystemFeature(key: string, enabled: boolean): Promise<SystemFeatureFlagItem> {
+    return request<SystemFeatureFlagItem>(`/admin/features/${key}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    })
   },
 }

@@ -3,23 +3,55 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar.vue'
 import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/stores/auth/auth.store'
+import { useToastStore } from '@/stores/toast/toast.store'
 import { ArrowLeft, ChevronRight, Home, Menu } from 'lucide-vue-next'
 
+const config = useRuntimeConfig()
+const appVersion = config.public.appVersion || '1.0.0'
 const STORAGE_KEY = 'dp-sidebar-collapsed'
 
 const sidebarCollapsed = ref(false)
 const mobileOpen = ref(false)
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+const toastStore = useToastStore()
 
-onMounted(() => {
+function checkRouteModuleAccess(path: string) {
+  if (!authStore.profileLoaded) return
+  const flags = authStore.featureFlags
+  if (path.startsWith('/cards') && flags.cards === false) {
+    toastStore.error('O módulo de Cartões está bloqueado no momento.')
+    router.replace('/')
+  } else if (path.startsWith('/accounts') && flags.accounts === false) {
+    toastStore.error('O módulo de Dinheiro Guardado está bloqueado no momento.')
+    router.replace('/')
+  } else if (path.startsWith('/monthly-control') && flags.monthly_control === false) {
+    toastStore.error('O módulo de Contas Fixas está bloqueado no momento.')
+    router.replace('/')
+  } else if (path.startsWith('/debts') && flags.debts === false) {
+    toastStore.error('O módulo de Dívidas & Parcelas está bloqueado no momento.')
+    router.replace('/')
+  } else if (path.startsWith('/agenda') && flags.agenda === false) {
+    toastStore.error('O módulo de Agenda está bloqueado no momento.')
+    router.replace('/')
+  }
+}
+
+onMounted(async () => {
   sidebarCollapsed.value = localStorage.getItem(STORAGE_KEY) === '1'
+  if (!authStore.profileLoaded) {
+    await authStore.fetchProfile()
+  }
+  checkRouteModuleAccess(route.path)
 })
 
 watch(
   () => route.fullPath,
   () => {
     mobileOpen.value = false
+    checkRouteModuleAccess(route.path)
   },
 )
 
@@ -43,6 +75,8 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
 
   if (path.startsWith('/debts')) {
     items.push({ label: 'Financiamentos & Parcelas' })
+  } else if (path.startsWith('/invoices')) {
+    items.push({ label: 'Análise de Faturas' })
   } else if (path.startsWith('/monthly-control')) {
     items.push({ label: 'Contas Fixas' })
   } else if (path.startsWith('/agenda')) {
@@ -58,9 +92,9 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
     }
   } else if (path.startsWith('/accounts')) {
     if (path === '/accounts') {
-      items.push({ label: 'Contas / Bancos' })
+      items.push({ label: 'Dinheiro Guardado & CDBs' })
     } else {
-      items.push({ label: 'Contas / Bancos', to: '/accounts' })
+      items.push({ label: 'Dinheiro Guardado & CDBs', to: '/accounts' })
       if (path.includes('/novo')) items.push({ label: 'Nova Conta' })
       else if (path.includes('/editar')) items.push({ label: 'Editar Conta' })
     }
@@ -74,6 +108,8 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
     }
   } else if (path.startsWith('/profile')) {
     items.push({ label: 'Perfil & Casal' })
+  } else if (path.startsWith('/admin/users')) {
+    items.push({ label: 'Usuários & Features (Admin)' })
   } else if (path.startsWith('/movements')) {
     items.push({ label: 'Movimentações' })
   } else {
@@ -168,6 +204,12 @@ function handleGoBack() {
       <div class="dashboard-shell__content">
         <RouterView />
       </div>
+
+      <footer class="border-t border-border/60 py-4 px-6 text-center text-[11px] text-muted-foreground">
+        <span>DuoPact Finanças a dois</span>
+        <span class="mx-1.5">•</span>
+        <span class="font-mono font-medium">v{{ appVersion }}</span>
+      </footer>
     </div>
   </div>
 </template>

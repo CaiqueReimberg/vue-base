@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
+import { CurrencyInput } from '@/components/ui/currency-input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useRecurringStore } from '@/stores/recurring/recurring.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import { recurringApi } from '@/api/recurring.api'
@@ -24,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  CreditCard,
   AlertCircle,
   Home,
   Pencil,
@@ -40,13 +43,15 @@ import {
 const recurringStore = useRecurringStore()
 const toastStore = useToastStore()
 
-const { expenseItems, loading, currentMonth } = storeToRefs(recurringStore)
+const { expenseItems, loading, referenceMonth } = storeToRefs(recurringStore)
 
-const month = computed(() => currentMonth.value || currentReferenceMonth())
+const month = computed(() => referenceMonth?.value || currentReferenceMonth())
 const periodLabel = computed(() => formatPeriodLabel(month.value))
 
 // Sugestões rápidas para 1 clique no Drawer
 const QUICK_PRESETS: Array<{ name: string; kind: RecurringKind; dueDay: number }> = [
+  { name: 'Fatura Nubank', kind: 'fixed_bill', dueDay: 10 },
+  { name: 'Fatura Cartão', kind: 'fixed_bill', dueDay: 10 },
   { name: 'Condomínio / Aluguel', kind: 'fixed_bill', dueDay: 10 },
   { name: 'Luz / Energia', kind: 'fixed_bill', dueDay: 15 },
   { name: 'Internet / Fibra', kind: 'fixed_bill', dueDay: 10 },
@@ -100,6 +105,19 @@ const progressPercent = computed(() => {
 
 function getBillIcon(item: RecurringMonthlyItem) {
   const n = item.name.toLowerCase()
+  if (
+    n.includes('fatura') ||
+    n.includes('cartão') ||
+    n.includes('cartao') ||
+    n.includes('nubank') ||
+    n.includes('itaú') ||
+    n.includes('itau') ||
+    n.includes('inter') ||
+    n.includes('c6') ||
+    n.includes('xp')
+  ) {
+    return CreditCard
+  }
   if (n.includes('luz') || n.includes('energia') || n.includes('elétrica')) return Zap
   if (n.includes('internet') || n.includes('wifi') || n.includes('fibra') || n.includes('celular')) return Wifi
   if (n.includes('casa') || n.includes('aluguel') || n.includes('condom') || n.includes('iptu')) return Home
@@ -215,14 +233,56 @@ async function submitForm() {
   }
 }
 
-async function handleTogglePaid(item: RecurringMonthlyItem) {
+// Drawer rápido: Ajustar valor só deste mês ou Confirmar Pagamento
+const monthValueDrawerOpen = ref(false)
+const monthValueMode = ref<'pay' | 'edit'>('pay')
+const selectedBill = ref<RecurringMonthlyItem | null>(null)
+const selectedBillAmount = ref<number | ''>('')
+const savingMonthValue = ref(false)
+
+function openMonthValueDrawer(item: RecurringMonthlyItem, mode: 'pay' | 'edit') {
+  selectedBill.value = item
+  selectedBillAmount.value = item.amount
+  monthValueMode.value = mode
+  monthValueDrawerOpen.value = true
+}
+
+async function submitMonthValueDrawer(alsoPay = false) {
+  const item = selectedBill.value
+  if (!item) return
+  const numAmount = Number(selectedBillAmount.value)
+  if (!Number.isFinite(numAmount) || numAmount <= 0) {
+    toastStore.error('Informe um valor válido maior que zero.')
+    return
+  }
+
+  savingMonthValue.value = true
   try {
-    await recurringStore.togglePaid(item.id)
-    toastStore.success(
-      item.paid ? `${item.name} marcado como pago!` : `${item.name} voltou para pendente.`,
-    )
+    if (monthValueMode.value === 'pay' || alsoPay) {
+      await recurringStore.markAsPaid(item.id, month.value, numAmount)
+      toastStore.success(`${item.name} marcado como pago (${formatCurrency(numAmount)})!`)
+    } else {
+      await recurringStore.setMonthAmount(item.id, numAmount, month.value)
+      toastStore.success(`Valor de ${item.name} em ${periodLabel.value} ajustado para ${formatCurrency(numAmount)}!`)
+    }
+    monthValueDrawerOpen.value = false
   } catch (e) {
-    toastStore.error(e instanceof Error ? e.message : 'Erro ao atualizar status')
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao atualizar valor do mês')
+  } finally {
+    savingMonthValue.value = false
+  }
+}
+
+async function handleTogglePaid(item: RecurringMonthlyItem) {
+  if (item.paid) {
+    try {
+      await recurringStore.unmarkAsPaid(item.id)
+      toastStore.success(`${item.name} voltou para pendente.`)
+    } catch (e) {
+      toastStore.error(e instanceof Error ? e.message : 'Erro ao atualizar status')
+    }
+  } else {
+    openMonthValueDrawer(item, 'pay')
   }
 }
 
@@ -317,59 +377,102 @@ async function confirmRemove() {
     <!-- Resumo Direto das Contas Fixas no Mês -->
     <Card>
       <CardContent class="p-5 space-y-4">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
-          <div>
-            <span class="text-xs font-medium text-muted-foreground">
-              Falta pagar neste mês
-            </span>
-            <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-foreground">
-              {{ formatCurrency(pendingMonthlyAmount) }}
+        <template v-if="loading && expenseItems.length === 0">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
+            <div v-for="n in 3" :key="n" :class="n > 1 ? 'sm:pl-6 space-y-2' : 'space-y-2'">
+              <Skeleton class="h-3.5 w-28" />
+              <Skeleton class="h-7 w-32" />
+              <Skeleton class="h-3 w-24" />
             </div>
-            <span class="text-xs text-muted-foreground">
-              {{ pendingCount }} {{ pendingCount === 1 ? 'conta pendente' : 'contas pendentes' }}
-            </span>
           </div>
+          <Skeleton class="h-2 w-full rounded-full" />
+        </template>
 
-          <div class="sm:pl-6">
-            <span class="text-xs font-medium text-muted-foreground">
-              Já pago em {{ periodLabel }}
-            </span>
-            <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
-              {{ formatCurrency(paidMonthlyAmount) }}
-            </div>
-            <span class="text-xs text-muted-foreground">
-              {{ paidCount }} {{ paidCount === 1 ? 'conta quitada' : 'contas quitadas' }}
-            </span>
-          </div>
-
-          <div class="sm:pl-6">
-            <span class="text-xs font-medium text-muted-foreground">
-              Total de contas fixas
-            </span>
-            <div class="mt-1 flex items-baseline gap-1">
-              <span class="text-2xl font-bold tracking-tight tabular-nums text-muted-foreground">
-                {{ formatCurrency(totalMonthlyAmount) }}
+        <template v-else>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
+            <div>
+              <span class="text-xs font-medium text-muted-foreground">
+                Falta pagar neste mês
               </span>
-              <span class="text-xs text-muted-foreground">/mês</span>
+              <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-foreground">
+                {{ formatCurrency(pendingMonthlyAmount) }}
+              </div>
+              <span class="text-xs text-muted-foreground">
+                {{ pendingCount }} {{ pendingCount === 1 ? 'conta pendente' : 'contas pendentes' }}
+              </span>
             </div>
-            <span class="text-xs text-muted-foreground">
-              {{ expenseItems.length }} {{ expenseItems.length === 1 ? 'conta cadastrada' : 'contas cadastradas' }}
-            </span>
-          </div>
-        </div>
 
-        <Progress
-          :model-value="progressPercent"
-          class="h-2"
-          indicator-class="bg-emerald-600 dark:bg-emerald-500"
-        />
+            <div class="sm:pl-6">
+              <span class="text-xs font-medium text-muted-foreground">
+                Já pago em {{ periodLabel }}
+              </span>
+              <div class="mt-1 text-2xl font-bold tracking-tight tabular-nums text-emerald-600 dark:text-emerald-400">
+                {{ formatCurrency(paidMonthlyAmount) }}
+              </div>
+              <span class="text-xs text-muted-foreground">
+                {{ paidCount }} {{ paidCount === 1 ? 'conta quitada' : 'contas quitadas' }}
+              </span>
+            </div>
+
+            <div class="sm:pl-6">
+              <span class="text-xs font-medium text-muted-foreground">
+                Total de contas fixas
+              </span>
+              <div class="mt-1 flex items-baseline gap-1">
+                <span class="text-2xl font-bold tracking-tight tabular-nums text-muted-foreground">
+                  {{ formatCurrency(totalMonthlyAmount) }}
+                </span>
+                <span class="text-xs text-muted-foreground">/mês</span>
+              </div>
+              <span class="text-xs text-muted-foreground">
+                {{ expenseItems.length }} {{ expenseItems.length === 1 ? 'conta cadastrada' : 'contas cadastradas' }}
+              </span>
+            </div>
+          </div>
+
+          <Progress
+            :model-value="progressPercent"
+            class="h-2"
+            indicator-class="bg-emerald-600 dark:bg-emerald-500"
+          />
+        </template>
       </CardContent>
     </Card>
 
-    <!-- Loading -->
-    <div v-if="loading" class="py-12 text-center text-xs text-muted-foreground">
-      Carregando contas fixas...
-    </div>
+    <!-- Loading Skeleton da Lista -->
+    <Card v-if="loading && expenseItems.length === 0">
+      <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3.5 px-5">
+        <Skeleton class="h-4 w-48" />
+        <Skeleton class="h-3.5 w-32" />
+      </CardHeader>
+      <CardContent class="p-0">
+        <ul class="divide-y divide-border" aria-label="Carregando contas fixas">
+          <li
+            v-for="n in 4"
+            :key="n"
+            class="flex items-center justify-between gap-4 px-5 py-4"
+          >
+            <div class="flex items-center gap-3.5">
+              <Skeleton class="h-10 w-10 rounded-xl" />
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <Skeleton class="h-4 w-32" />
+                  <Skeleton class="h-4 w-16 rounded-full" />
+                </div>
+                <Skeleton class="h-3 w-28" />
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="space-y-1.5 text-right">
+                <Skeleton class="h-4 w-24" />
+                <Skeleton class="h-3 w-16 ml-auto" />
+              </div>
+              <Skeleton class="h-8 w-16 rounded-md" />
+            </div>
+          </li>
+        </ul>
+      </CardContent>
+    </Card>
 
     <!-- Lista de Contas Fixas -->
     <Card v-else-if="expenseItems.length > 0">
@@ -444,31 +547,46 @@ async function confirmRemove() {
             <!-- Valor + Botões Pagar / Editar / Excluir -->
             <div class="flex items-center justify-between gap-4 sm:justify-end">
               <div class="text-left sm:text-right">
-                <div class="text-sm font-bold tabular-nums text-foreground">
-                  {{ formatCurrency(item.amount) }}
-                  <span class="text-xs font-normal text-muted-foreground">/mês</span>
-                </div>
-                <span
-                  class="inline-flex items-center gap-1 text-[11px]"
-                  :class="
-                    item.paid
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : recurringStore.statusFor(item) === 'overdue'
-                        ? 'text-red-600 dark:text-red-400'
-                        : 'text-amber-600 dark:text-amber-400'
-                  "
+                <button
+                  type="button"
+                  class="group/price inline-flex items-baseline gap-1 rounded-md px-1.5 py-0.5 text-sm font-bold tabular-nums text-foreground transition-colors hover:bg-muted hover:text-primary"
+                  title="Clique para ajustar o valor apenas neste mês (ex: conta de luz variável)"
+                  @click="openMonthValueDrawer(item, 'edit')"
                 >
-                  <CheckCircle2 v-if="item.paid" class="h-3 w-3" />
-                  <AlertCircle v-else-if="recurringStore.statusFor(item) === 'overdue'" class="h-3 w-3" />
-                  <Clock v-else class="h-3 w-3" />
-                  {{
-                    item.paid
-                      ? 'Pago'
-                      : recurringStore.statusFor(item) === 'overdue'
-                        ? 'Vencida'
-                        : 'Pendente'
-                  }}
-                </span>
+                  <span>{{ formatCurrency(item.amount) }}</span>
+                  <span class="text-xs font-normal text-muted-foreground">/mês</span>
+                  <Pencil class="h-3 w-3 self-center text-muted-foreground opacity-60 group-hover/price:opacity-100 group-hover/price:text-primary" />
+                </button>
+                <div class="flex items-center sm:justify-end gap-1.5">
+                  <span
+                    v-if="item.isMonthOverride"
+                    class="text-[10px] font-medium text-primary"
+                    :title="item.baseAmount ? `Valor base: ${formatCurrency(item.baseAmount)}` : ''"
+                  >
+                    Ajustado no mês •
+                  </span>
+                  <span
+                    class="inline-flex items-center gap-1 text-[11px]"
+                    :class="
+                      item.paid
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : recurringStore.statusFor(item) === 'overdue'
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-amber-600 dark:text-amber-400'
+                    "
+                  >
+                    <CheckCircle2 v-if="item.paid" class="h-3 w-3" />
+                    <AlertCircle v-else-if="recurringStore.statusFor(item) === 'overdue'" class="h-3 w-3" />
+                    <Clock v-else class="h-3 w-3" />
+                    {{
+                      item.paid
+                        ? 'Pago'
+                        : recurringStore.statusFor(item) === 'overdue'
+                          ? 'Vencida'
+                          : 'Pendente'
+                    }}
+                  </span>
+                </div>
               </div>
 
               <div class="flex items-center gap-1">
@@ -613,16 +731,12 @@ async function confirmRemove() {
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-foreground">
-              Valor mensal (R$)
+              Valor mensal
             </label>
-            <input
-              v-model.number="formAmount"
-              type="number"
-              step="0.01"
-              min="0.01"
+            <CurrencyInput
+              v-model="formAmount"
               placeholder="150,00"
               required
-              class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -669,6 +783,71 @@ async function confirmRemove() {
           </Button>
           <Button type="submit" :disabled="submitting">
             {{ submitting ? 'Salvando...' : isEditing ? 'Salvar alterações' : 'Adicionar conta fixa' }}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+
+    <!-- Bottom Drawer (Sheet) para Ajustar Valor Só do Mês ou Confirmar Pagamento -->
+    <Sheet
+      v-model:open="monthValueDrawerOpen"
+      :title="
+        monthValueMode === 'pay'
+          ? `Pagar ${selectedBill?.name ?? 'conta'}`
+          : `Valor de ${selectedBill?.name ?? 'conta'} em ${periodLabel}`
+      "
+      :description="
+        monthValueMode === 'pay'
+          ? 'Confirme o valor que veio na fatura/boleto deste mês para dar baixa.'
+          : 'Ajuste o valor apenas para este mês sem alterar os meses anteriores ou futuros.'
+      "
+    >
+      <form class="space-y-5" @submit.prevent="submitMonthValueDrawer(false)">
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">
+            Valor da fatura em {{ periodLabel }}
+          </label>
+          <CurrencyInput
+            v-model="selectedBillAmount"
+            placeholder="0,00"
+            required
+          />
+          <p class="text-[11px] text-muted-foreground">
+            <template v-if="selectedBill?.baseAmount">
+              Valor base cadastrado: <strong>{{ formatCurrency(selectedBill.baseAmount) }}</strong>.
+            </template>
+            Essa alteração vale somente para <strong>{{ periodLabel }}</strong>.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+          <Button type="button" variant="outline" @click="monthValueDrawerOpen = false">
+            Cancelar
+          </Button>
+
+          <Button
+            v-if="monthValueMode === 'edit' && selectedBill && !selectedBill.paid"
+            type="button"
+            variant="secondary"
+            class="gap-1.5"
+            :disabled="savingMonthValue"
+            @click="submitMonthValueDrawer(true)"
+          >
+            <Check class="h-3.5 w-3.5" />
+            <span>Salvar e marcar como pago</span>
+          </Button>
+
+          <Button type="submit" class="gap-1.5" :disabled="savingMonthValue">
+            <Check v-if="monthValueMode === 'pay'" class="h-3.5 w-3.5" />
+            <span>
+              {{
+                savingMonthValue
+                  ? 'Salvando...'
+                  : monthValueMode === 'pay'
+                    ? 'Confirmar pagamento'
+                    : 'Salvar valor no mês'
+              }}
+            </span>
           </Button>
         </div>
       </form>

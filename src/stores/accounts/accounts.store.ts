@@ -19,7 +19,14 @@ export const useAccountsStore = defineStore('accounts', {
     },
     accountById: (state) => (id: string) => state.accounts.find((a) => a.id === id),
     typeLabel(): (type: string) => string {
-      return (type: string) => (type === 'checking' ? 'Conta corrente' : 'Poupança')
+      return (type: string) => {
+        if (type === 'investment') return 'CDB / Investimento'
+        if (type === 'savings') return 'Caixinha / Reserva'
+        return 'Conta Corrente'
+      }
+    },
+    totalSavedBalance(state): number {
+      return state.accounts.reduce((sum, a) => sum + Number(a.balance || 0), 0)
     },
   },
 
@@ -54,22 +61,18 @@ export const useAccountsStore = defineStore('accounts', {
     },
 
     async create(data: AccountCreateInput) {
-      this.loading = true
       this.error = null
       try {
         const account = await accountsApi.create(data)
-        this.accounts.push(account)
+        this.accounts.unshift(account)
         return account
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Erro ao criar conta'
         throw e
-      } finally {
-        this.loading = false
       }
     },
 
     async update(id: string, data: AccountUpdateInput) {
-      this.loading = true
       this.error = null
       try {
         const account = await accountsApi.update(id, data)
@@ -79,13 +82,14 @@ export const useAccountsStore = defineStore('accounts', {
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Erro ao atualizar conta'
         throw e
-      } finally {
-        this.loading = false
       }
     },
 
+    async adjustBalance(id: string, delta: number) {
+      return this.update(id, { delta })
+    },
+
     async remove(id: string) {
-      this.loading = true
       this.error = null
       try {
         await accountsApi.delete(id)
@@ -93,8 +97,6 @@ export const useAccountsStore = defineStore('accounts', {
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Erro ao excluir conta'
         throw e
-      } finally {
-        this.loading = false
       }
     },
   },

@@ -1,7 +1,67 @@
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../database'
-import { families, users } from '../database/schema'
+import { families, featureFlags, users } from '../database/schema'
 import { badRequest, notFound, type PublicUser, toPublicUser } from './auth'
+
+export const DEFAULT_FEATURE_FLAGS: Array<{
+  key: string
+  label: string
+  description: string
+  enabled: boolean
+}> = [
+  {
+    key: 'accounts',
+    label: 'Dinheiro Guardado (CDBs)',
+    description: 'Controle de contas, reservas e CDBs',
+    enabled: true,
+  },
+  {
+    key: 'invoices',
+    label: 'Análise de Faturas (IA)',
+    description: 'Destrinchador de faturas OFX e CSV com Gemini (também exige permissão no usuário)',
+    enabled: true,
+  },
+  {
+    key: 'monthly_control',
+    label: 'Contas Fixas',
+    description: 'Gestão de contas fixas e recorrentes do mês',
+    enabled: true,
+  },
+  {
+    key: 'debts',
+    label: 'Dívidas & Parcelas',
+    description: 'Controle de financiamentos e compras parceladas',
+    enabled: true,
+  },
+  {
+    key: 'cards',
+    label: 'Cartões de Crédito',
+    description: 'Cadastro manual de limites e cartões (módulo legado)',
+    enabled: false,
+  },
+  {
+    key: 'agenda',
+    label: 'Agenda de Vencimentos',
+    description: 'Calendário de vencimentos do mês',
+    enabled: true,
+  },
+]
+
+export async function getSystemFeatureFlagsMap(): Promise<Record<string, boolean>> {
+  const map: Record<string, boolean> = {}
+  for (const def of DEFAULT_FEATURE_FLAGS) {
+    map[def.key] = def.enabled
+  }
+  try {
+    const rows = await db.select().from(featureFlags)
+    for (const r of rows) {
+      map[r.key] = Boolean(r.enabled)
+    }
+  } catch {
+    // Se a tabela ainda não existir no SQLite local, usa os defaults
+  }
+  return map
+}
 
 export async function getUserOrThrow(userId: string) {
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
@@ -102,13 +162,54 @@ export async function getUserProfileResponse(userId: string) {
     }
   }
 
+  const features = await getSystemFeatureFlagsMap()
+
   return {
     id: user.id,
     email: user.email,
     name: user.name ?? null,
+    invoiceAnalysisEnabled: Boolean(user.invoiceAnalysisEnabled),
+    isAdmin: Boolean(user.isAdmin),
+    features,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     family: familyObj,
     partner: partnerObj,
   }
+}
+
+export async function assertFeatureFlagEnabled(key: string, label = 'Este módulo') {
+  const features = await getSystemFeatureFlagsMap()
+  if (features[key] === false) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: `${label} está bloqueado no momento.`,
+      data: { message: `${label} está bloqueado no momento.` },
+    })
+  }
+}
+
+export async function assertInvoiceAnalysisEnabled(userId: string) {
+  await assertFeatureFlagEnabled('invoices', 'O módulo de Análise de Faturas')
+  const user = await getUserOrThrow(userId)
+  if (!user.invoiceAnalysisEnabled && !user.isAdmin) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'A funcionalidade de Análise de Faturas não está habilitada para este usuário.',
+      data: { message: 'A funcionalidade de Análise de Faturas não está habilitada para este usuário.' },
+    })
+  }
+  return user
+}
+
+export async function assertAdminUser(userId: string) {
+  const user = await getUserOrThrow(userId)
+  if (!user.isAdmin) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Acesso restrito a administradores.',
+      data: { message: 'Acesso restrito a administradores.' },
+    })
+  }
+  return user
 }

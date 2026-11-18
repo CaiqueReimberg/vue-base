@@ -240,6 +240,84 @@ const MIGRATIONS: MigrationStep[] = [
         ON "${s}".monthly_plans(user_id, reference_month);
     `,
   },
+  {
+    id: '0003_add_recurring_month_overrides',
+    description: 'Adiciona tabela recurring_month_overrides para valor variável por mês em contas fixas (ex: Luz, Água)',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".recurring_month_overrides (
+        id TEXT PRIMARY KEY,
+        recurring_id TEXT NOT NULL REFERENCES "${s}".recurrings(id) ON DELETE CASCADE,
+        reference_month TEXT NOT NULL,
+        amount DOUBLE PRECISION NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(recurring_id, reference_month)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_recurring_month_overrides_month
+        ON "${s}".recurring_month_overrides(reference_month);
+    `,
+  },
+  {
+    id: '0004_add_invoice_analyses',
+    description: 'Adiciona tabela invoice_analyses para raio-x de faturas de cartão destrinchadas',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".invoice_analyses (
+        id TEXT PRIMARY KEY,
+        card_name TEXT NOT NULL,
+        reference_month TEXT NOT NULL,
+        total_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+        items_count INTEGER NOT NULL DEFAULT 0,
+        items_json TEXT NOT NULL,
+        is_shared BOOLEAN NOT NULL DEFAULT TRUE,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        family_id TEXT REFERENCES "${s}".families(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_invoice_analyses_user_month
+        ON "${s}".invoice_analyses(user_id, reference_month);
+    `,
+  },
+  {
+    id: '0005_add_user_invoice_analysis_enabled',
+    description: 'Adiciona coluna invoice_analysis_enabled na tabela users para feature flag de análise de faturas',
+    up: (s) => `
+      ALTER TABLE "${s}".users
+        ADD COLUMN IF NOT EXISTS invoice_analysis_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+    `,
+  },
+  {
+    id: '0006_add_user_is_admin',
+    description: 'Adiciona coluna is_admin na tabela users para controle de administradores e gestão de feature flags',
+    up: (s) => `
+      ALTER TABLE "${s}".users
+        ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    `,
+  },
+  {
+    id: '0007_add_feature_flags',
+    description: 'Adiciona tabela feature_flags para controle global de módulos e funcionalidades do sistema',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".feature_flags (
+        key TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        description TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO "${s}".feature_flags (key, label, description, enabled, updated_at)
+      VALUES
+        ('accounts', 'Dinheiro Guardado (CDBs)', 'Controle de contas, reservas e CDBs', TRUE, NOW()::text),
+        ('invoices', 'Análise de Faturas (IA)', 'Destrinchador de faturas OFX e CSV com Gemini (também exige permissão no usuário)', TRUE, NOW()::text),
+        ('monthly_control', 'Contas Fixas', 'Gestão de contas fixas e recorrentes do mês', TRUE, NOW()::text),
+        ('debts', 'Dívidas & Parcelas', 'Controle de financiamentos e compras parceladas', TRUE, NOW()::text),
+        ('cards', 'Cartões de Crédito', 'Cadastro manual de limites e cartões (módulo legado)', FALSE, NOW()::text),
+        ('agenda', 'Agenda de Vencimentos', 'Calendário de vencimentos do mês', TRUE, NOW()::text)
+      ON CONFLICT (key) DO NOTHING;
+    `,
+  },
 ]
 
 let migrationPromise: Promise<void> | null = null

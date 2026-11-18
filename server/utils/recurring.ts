@@ -1,8 +1,16 @@
+import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '../database'
-import { accounts, cards, categories, recurringPayments, recurrings } from '../database/schema'
-import { notFound } from './auth'
-import { formatReferenceMonth, parseReferenceMonth, resolveReferenceMonth } from './billing'
+import {
+  accounts,
+  cards,
+  categories,
+  recurringMonthOverrides,
+  recurringPayments,
+  recurrings,
+} from '../database/schema'
+import { badRequest, notFound } from './auth'
+import { formatReferenceMonth, parseReferenceMonth, resolveReferenceMonth, roundMoney } from './billing'
 import { getHouseholdVisibility, getPublicUsersMap } from './household'
 
 export async function hydrateRecurrings(
@@ -105,26 +113,42 @@ export async function getMonthlyRecurringStatus(userId: string, month?: string) 
   const hydrated = await hydrateRecurrings(rows, true)
 
   const recurringIds = rows.map((r) => r.id)
-  const payments =
+  const [payments, overrides] =
     recurringIds.length === 0
-      ? []
-      : await db
-          .select()
-          .from(recurringPayments)
-          .where(
-            and(
-              inArray(recurringPayments.recurringId, recurringIds),
-              eq(recurringPayments.referenceMonth, referenceMonth)
-            )
-          )
+      ? [[], []]
+      : await Promise.all([
+          db
+            .select()
+            .from(recurringPayments)
+            .where(
+              and(
+                inArray(recurringPayments.recurringId, recurringIds),
+                eq(recurringPayments.referenceMonth, referenceMonth)
+              )
+            ),
+          db
+            .select()
+            .from(recurringMonthOverrides)
+            .where(
+              and(
+                inArray(recurringMonthOverrides.recurringId, recurringIds),
+                eq(recurringMonthOverrides.referenceMonth, referenceMonth)
+              )
+            ),
+        ])
 
   const paidUsersMap = await getPublicUsersMap(payments.map((p) => p.userId))
   const paymentByRecurring = new Map(payments.map((p) => [p.recurringId, p]))
+  const overrideByRecurring = new Map(overrides.map((o) => [o.recurringId, Number(o.amount)]))
 
   const data = hydrated.map((r) => {
     const payment = paymentByRecurring.get(r.id)
+    const overrideAmount = overrideByRecurring.get(r.id)
     return {
       ...r,
+      baseAmount: Number(r.amount),
+      amount: overrideAmount !== undefined ? overrideAmount : Number(r.amount),
+      isMonthOverride: overrideAmount !== undefined,
       paid: Boolean(payment),
       paidAt: payment ? new Date(payment.paidAt).toISOString() : null,
       paidBy: payment ? paidUsersMap.get(payment.userId) ?? null : null,
@@ -147,4 +171,54 @@ export async function findOneVisibleRecurring(userId: string, recurringId: strin
   }
   const [hydrated] = await hydrateRecurrings([rec], true)
   return hydrated
+}
+
+export async function setRecurringMonthAmount(
+  userId: string,
+  recurringId: string,
+  referenceMonth: string,
+  amount: number
+) {
+  if (!referenceMonth || !/^\d{4}-\d{2}$/.test(referenceMonth)) {
+    badRequest('Informe referenceMonth no formato YYYY-MM')
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    badRequest('Informe um valor maior que zero')
+  }
+
+  await findOneVisibleRecurring(userId, recurringId)
+  const rounded = roundMoney(amount)
+  const now = new Date().toISOString()
+
+  const [existing] = await db
+    .select()
+    .from(recurringMonthOverrides)
+    .where(
+      and(
+        eq(recurringMonthOverrides.recurringId, recurringId),
+        eq(recurringMonthOverrides.referenceMonth, referenceMonth)
+      )
+    )
+    .limit(1)
+
+  if (existing) {
+    await db
+      .update(recurringMonthOverrides)
+      .set({ amount: rounded, updatedAt: now })
+      .where(eq(recurringMonthOverrides.id, existing.id))
+  } else {
+    await db.insert(recurringMonthOverrides).values({
+      id: randomUUID(),
+      recurringId,
+      referenceMonth,
+      amount: rounded,
+      updatedAt: now,
+    })
+  }
+
+  return {
+    recurringId,
+    referenceMonth,
+    amount: rounded,
+  }
 }

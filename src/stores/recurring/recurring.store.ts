@@ -56,20 +56,40 @@ export const useRecurringStore = defineStore('recurring', {
       }
     },
 
-    async markAsPaid(id: string, month?: string) {
+    async setMonthAmount(id: string, amount: number, month?: string) {
+      const referenceMonth = month ?? this.referenceMonth
+      this.togglingIds.add(id)
+      try {
+        await recurringApi.setMonthAmount(id, referenceMonth, amount)
+        const item = this.items.find((i) => i.id === id)
+        if (item) {
+          item.amount = amount
+          item.isMonthOverride = true
+        }
+      } finally {
+        this.togglingIds.delete(id)
+      }
+    },
+
+    async markAsPaid(id: string, month?: string, amount?: number) {
       const referenceMonth = month ?? this.referenceMonth
       const item = this.items.find((i) => i.id === id)
       const prevPaid = item?.paid ?? false
       const prevPaidAt = item?.paidAt ?? null
+      const prevAmount = item?.amount
 
       if (item) {
         item.paid = true
         item.paidAt = new Date().toISOString()
+        if (amount !== undefined && amount > 0) {
+          item.amount = amount
+          item.isMonthOverride = true
+        }
       }
       this.togglingIds.add(id)
 
       try {
-        const res = await recurringApi.markAsPaid(id, referenceMonth)
+        const res = await recurringApi.markAsPaid(id, referenceMonth, amount)
         if (item) {
           item.paidAt = res.paidAt
         }
@@ -77,6 +97,7 @@ export const useRecurringStore = defineStore('recurring', {
         if (item) {
           item.paid = prevPaid
           item.paidAt = prevPaidAt
+          if (prevAmount !== undefined) item.amount = prevAmount
         }
         throw e
       } finally {

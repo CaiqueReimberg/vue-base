@@ -29,6 +29,11 @@ export default <RouterConfig>{
           component: () => import('@/views/DebtsView.vue'),
         },
         {
+          path: 'invoices',
+          name: 'invoices',
+          component: () => import('@/views/InvoicesBreakdownView.vue'),
+        },
+        {
           path: 'monthly-control',
           name: 'monthly-control',
           component: () => import('@/views/MonthlyControlView.vue'),
@@ -97,6 +102,11 @@ export default <RouterConfig>{
           path: 'profile',
           name: 'profile',
           component: () => import('@/views/ProfileView.vue'),
+        },
+        {
+          path: 'admin/users',
+          name: 'admin-users',
+          component: () => import('@/views/AdminUsersView.vue'),
         },
       ],
     },

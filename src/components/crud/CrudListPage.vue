@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Skeleton } from '@/components/ui/skeleton'
 import CrudPageHeader from './CrudPageHeader.vue'
 
 defineProps<{
@@ -22,8 +23,22 @@ defineProps<{
 
       <p v-if="error" class="crud-error">{{ error }}</p>
 
-      <div v-if="loading && items.length === 0" class="crud-loading">
-        Carregando…
+      <div v-if="loading && items.length === 0" class="space-y-3 py-2">
+        <Skeleton class="h-4 w-28" />
+        <div
+          v-for="n in 3"
+          :key="n"
+          class="flex items-center justify-between rounded-xl border border-border bg-card p-4"
+        >
+          <div class="space-y-2">
+            <Skeleton class="h-4 w-40" />
+            <Skeleton class="h-3 w-56" />
+          </div>
+          <div class="flex items-center gap-2">
+            <Skeleton class="h-8 w-8 rounded-lg" />
+            <Skeleton class="h-8 w-8 rounded-lg" />
+          </div>
+        </div>
       </div>
 
       <template v-else>

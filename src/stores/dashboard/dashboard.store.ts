@@ -65,6 +65,7 @@ export interface DashboardPendingItem {
   status: 'overdue' | 'urgent' | 'pending'
   statusLabel: string
   canMarkPaid: boolean
+  isShared?: boolean
   linkTo?: string
 }
 
@@ -77,6 +78,7 @@ export interface DashboardPaidItem {
   amount: number
   paidDateLabel: string
   canUnmarkPaid: boolean
+  isShared?: boolean
 }
 
 export interface DashboardState {
@@ -340,6 +342,7 @@ export const useDashboardStore = defineStore('dashboard', {
           status: urgency.status,
           statusLabel: urgency.label,
           canMarkPaid: true,
+          isShared: Boolean(r.isShared),
         })
       }
 
@@ -359,6 +362,7 @@ export const useDashboardStore = defineStore('dashboard', {
           status: urgency.status,
           statusLabel: urgency.label,
           canMarkPaid: false,
+          isShared: true,
           linkTo: `/cards/${c.cardId}/faturas`,
         })
       }
@@ -381,6 +385,7 @@ export const useDashboardStore = defineStore('dashboard', {
             status: urgency.status,
             statusLabel: dueDay ? urgency.label : 'Aberto',
             canMarkPaid: true,
+            isShared: Boolean(tx.isShared),
           })
         }
       }
@@ -431,6 +436,7 @@ export const useDashboardStore = defineStore('dashboard', {
           amount: r.value,
           paidDateLabel: paidLabel,
           canUnmarkPaid: true,
+          isShared: Boolean(r.isShared),
         })
       }
 
@@ -447,6 +453,7 @@ export const useDashboardStore = defineStore('dashboard', {
           amount: c.invoiceValue,
           paidDateLabel: 'Fatura quitada',
           canUnmarkPaid: false,
+          isShared: true,
         })
       }
 
@@ -472,6 +479,7 @@ export const useDashboardStore = defineStore('dashboard', {
           amount: tx.amount,
           paidDateLabel: paidLabel,
           canUnmarkPaid: tx.kind === 'debt',
+          isShared: Boolean(tx.isShared),
         })
       }
 
@@ -657,21 +665,52 @@ export const useDashboardStore = defineStore('dashboard', {
       await this.fetchSummary(nextYm)
     },
 
-    async markPendingItemAsPaid(item: DashboardPendingItem) {
+    async markPendingItemAsPaid(item: DashboardPendingItem, customAmount?: number) {
       if (this.actionLoadingIds.includes(item.id)) return
       this.actionLoadingIds.push(item.id)
       try {
+        const finalAmount =
+          customAmount !== undefined && Number.isFinite(customAmount) && customAmount > 0
+            ? customAmount
+            : undefined
+
         if (item.kind === 'savings') {
-          await this.saveMonthlyPlan({ savingsPaid: true })
+          await this.saveMonthlyPlan({
+            savingsPaid: true,
+            ...(finalAmount !== undefined ? { savingsGoal: finalAmount } : {}),
+          })
           return
         }
         if (item.kind === 'recurring') {
-          await recurringApi.markAsPaid(item.referenceId, this.referenceMonth)
+          await recurringApi.markAsPaid(item.referenceId, this.referenceMonth, finalAmount)
         } else if (item.kind === 'transaction') {
           await transactionsApi.update(item.referenceId, {
             status: 'cleared',
             paidAt: new Date().toISOString(),
+            ...(finalAmount !== undefined ? { amount: finalAmount } : {}),
           })
+        }
+        await this.fetchSummary(this.referenceMonth)
+      } finally {
+        this.actionLoadingIds = this.actionLoadingIds.filter((id) => id !== item.id)
+      }
+    },
+
+    async updateItemMonthAmount(
+      item: DashboardPendingItem | DashboardPaidItem,
+      amount: number,
+    ) {
+      if (this.actionLoadingIds.includes(item.id)) return
+      this.actionLoadingIds.push(item.id)
+      try {
+        if (item.kind === 'savings') {
+          await this.saveMonthlyPlan({ savingsGoal: amount })
+          return
+        }
+        if (item.kind === 'recurring') {
+          await recurringApi.setMonthAmount(item.referenceId, this.referenceMonth, amount)
+        } else if (item.kind === 'transaction') {
+          await transactionsApi.update(item.referenceId, { amount })
         }
         await this.fetchSummary(this.referenceMonth)
       } finally {
