@@ -17,6 +17,7 @@ export const budgets = active.budgets
 export const recurrings = active.recurrings
 export const recurringPayments = active.recurringPayments
 export const recurringMonthOverrides = active.recurringMonthOverrides
+export const debtPayments = active.debtPayments
 export const transactions = active.transactions
 export const monthlyPlans = active.monthlyPlans
 export const invoiceAnalyses = active.invoiceAnalyses

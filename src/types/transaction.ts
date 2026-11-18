@@ -24,6 +24,10 @@ export interface Transaction {
   description: string
   occurredAt: string
   createdAt: string
+  dueDate?: string | null
+  paidAt?: string | null
+  status?: 'pending' | 'cleared' | 'paid'
+  paidMonths?: string[]
   /** Visível para o parceiro no vínculo + entra no orçamento compartilhado quando true. */
   isShared?: boolean
   installmentNumber?: number | null
@@ -64,6 +68,10 @@ export interface TransactionUpdateInput {
   amount?: number
   description?: string
   occurredAt?: string
+  dueDate?: string | null
+  paidAt?: string | null
+  status?: 'pending' | 'cleared' | 'paid'
+  paymentMonth?: string | null
   isShared?: boolean
   kind?: TransactionKind
   debtCategory?: DebtCategory

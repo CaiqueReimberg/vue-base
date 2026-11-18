@@ -131,7 +131,43 @@ function formatPeriodLabel(y: number, month1to12: number): string {
   return raw.charAt(0).toUpperCase() + raw.slice(1)
 }
 
+function getDebtMonthStatus(
+  tx: Transaction,
+  y: number,
+  month1to12: number,
+  ym: string,
+): { active: boolean; installmentNumber: number | null; isPaidInMonth: boolean } {
+  if (tx.kind !== 'debt') {
+    return {
+      active: false,
+      installmentNumber: tx.installmentNumber ?? null,
+      isPaidInMonth: tx.status === 'cleared' || tx.status === 'paid' || Boolean(tx.paidAt),
+    }
+  }
+  const startYm =
+    tx.referenceMonth && /^\d{4}-\d{2}$/.test(tx.referenceMonth)
+      ? tx.referenceMonth
+      : String(tx.occurredAt).slice(0, 7)
+  const [sy, sm] = startYm.split('-').map(Number)
+  if (!sy || !sm) {
+    return { active: false, installmentNumber: null, isPaidInMonth: false }
+  }
+  const diff = (y - sy) * 12 + (month1to12 - sm)
+  const total = Math.max(Number(tx.installmentTotal || 1), 1)
+  const active = diff >= 0 && diff < total
+  const paidMonths = Array.isArray(tx.paidMonths) ? tx.paidMonths : []
+  const isPaidInMonth = paidMonths.includes(ym)
+  return {
+    active,
+    installmentNumber: active ? diff + 1 : null,
+    isPaidInMonth,
+  }
+}
+
 function occurredInCalendarMonth(tx: Transaction, y: number, month1to12: number, ym: string): boolean {
+  if (tx.kind === 'debt') {
+    return getDebtMonthStatus(tx, y, month1to12, ym).active
+  }
   if (tx.referenceMonth === ym) return true
   const d = new Date(tx.occurredAt)
   return d.getFullYear() === y && d.getMonth() + 1 === month1to12
@@ -372,14 +408,22 @@ export const useDashboardStore = defineStore('dashboard', {
         if (tx.type !== 'expense') continue
         if (tx.card?.id) continue // já contabilizado na fatura do cartão
         if (tx.status === 'pending' && !tx.paidAt) {
-          const dueDay = tx.dueDate ? new Date(tx.dueDate).getUTCDate() : null
+          const dueDay = tx.dueDate
+            ? new Date(tx.dueDate).getUTCDate()
+            : tx.kind === 'debt' && tx.occurredAt
+              ? new Date(tx.occurredAt).getUTCDate()
+              : null
           const urgency = computeDueUrgency(dueDay, ym)
+          const parcelBadge =
+            tx.kind === 'debt' && tx.installmentNumber && tx.installmentTotal
+              ? ` · Parcela ${tx.installmentNumber}/${tx.installmentTotal}`
+              : ''
           items.push({
             id: `tx-${tx.id}`,
             referenceId: tx.id,
             kind: 'transaction',
             title: tx.description,
-            subtitle: `${transactionSourceLabel(tx)}${tx.category?.name ? ` · ${tx.category.name}` : ''}`,
+            subtitle: `${transactionSourceLabel(tx)}${parcelBadge}${tx.category?.name ? ` · ${tx.category.name}` : ''}`,
             amount: tx.amount,
             dueDay,
             status: urgency.status,
@@ -470,12 +514,17 @@ export const useDashboardStore = defineStore('dashboard', {
           month: 'short',
         })}`
 
+        const parcelBadge =
+          tx.kind === 'debt' && tx.installmentNumber && tx.installmentTotal
+            ? ` · Parcela ${tx.installmentNumber}/${tx.installmentTotal}`
+            : ''
+
         items.push({
           id: `tx-paid-${tx.id}`,
           referenceId: tx.id,
           kind: 'transaction',
           title: tx.description,
-          subtitle: `${transactionSourceLabel(tx)}${tx.category?.name ? ` · ${tx.category.name}` : ''}`,
+          subtitle: `${transactionSourceLabel(tx)}${parcelBadge}${tx.category?.name ? ` · ${tx.category.name}` : ''}`,
           amount: tx.amount,
           paidDateLabel: paidLabel,
           canUnmarkPaid: tx.kind === 'debt',
@@ -687,6 +736,7 @@ export const useDashboardStore = defineStore('dashboard', {
           await transactionsApi.update(item.referenceId, {
             status: 'cleared',
             paidAt: new Date().toISOString(),
+            paymentMonth: this.referenceMonth,
             ...(finalAmount !== undefined ? { amount: finalAmount } : {}),
           })
         }
@@ -732,6 +782,7 @@ export const useDashboardStore = defineStore('dashboard', {
           await transactionsApi.update(item.referenceId, {
             status: 'pending',
             paidAt: undefined,
+            paymentMonth: this.referenceMonth,
           })
         }
         await this.fetchSummary(this.referenceMonth)
@@ -810,9 +861,18 @@ export const useDashboardStore = defineStore('dashboard', {
         this.commitment = commitment
         this.monthlyPlan = monthlyPlan
 
-        const monthlyExpenses = expenseTransactions.filter((tx) =>
-          occurredInCalendarMonth(tx, y, m, referenceMonth),
-        )
+        const monthlyExpenses = expenseTransactions
+          .filter((tx) => occurredInCalendarMonth(tx, y, m, referenceMonth))
+          .map((tx) => {
+            if (tx.kind !== 'debt') return tx
+            const debtState = getDebtMonthStatus(tx, y, m, referenceMonth)
+            return {
+              ...tx,
+              installmentNumber: debtState.installmentNumber,
+              status: debtState.isPaidInMonth ? ('cleared' as const) : ('pending' as const),
+              paidAt: debtState.isPaidInMonth ? tx.paidAt ?? new Date().toISOString() : null,
+            }
+          })
         const monthlyIncomes = incomeTransactions.filter((tx) =>
           occurredInCalendarMonth(tx, y, m, referenceMonth),
         )

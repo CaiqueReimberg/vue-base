@@ -140,6 +140,19 @@ export const recurringMonthOverrides = sqliteTable('recurring_month_overrides', 
   updatedAt: text('updated_at').notNull(),
 })
 
+export const debtPayments = sqliteTable('debt_payments', {
+  id: text('id').primaryKey(),
+  transactionId: text('transaction_id')
+    .notNull()
+    .references(() => transactions.id, { onDelete: 'cascade' }),
+  referenceMonth: text('reference_month').notNull(),
+  paidAt: text('paid_at').notNull(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+})
+
 export const transactions = sqliteTable('transactions', {
   id: text('id').primaryKey(),
   type: text('type').notNull(),

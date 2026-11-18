@@ -179,11 +179,12 @@ async function fetchDebts() {
   loading.value = true
   error.value = null
   try {
+    const activeYm = filterByReferenceMonth.value
+      ? filterReferenceMonth.value || currentReferenceMonth()
+      : currentReferenceMonth()
     const res = await transactionsApi.list({
       kind: 'debt',
-      referenceMonth: filterByReferenceMonth.value
-        ? filterReferenceMonth.value || undefined
-        : undefined,
+      referenceMonth: activeYm,
       limit: 100,
       page: 1,
     })
@@ -328,10 +329,14 @@ async function submitForm() {
 
 async function togglePaidStatus(t: Transaction) {
   const nextStatus = isDebtPaid(t) ? 'pending' : 'cleared'
+  const activeYm = filterByReferenceMonth.value
+    ? filterReferenceMonth.value || currentReferenceMonth()
+    : currentReferenceMonth()
   try {
     await transactionsApi.update(t.id, {
       status: nextStatus,
       paidAt: nextStatus === 'cleared' ? new Date().toISOString() : undefined,
+      paymentMonth: activeYm,
     })
     t.status = nextStatus
     toastStore.success(
@@ -831,8 +836,11 @@ async function confirmRemove() {
                 </div>
 
                 <div class="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
-                  <span>{{ formatInstallmentDuration(t.installmentTotal) }}</span>
-                  <span v-if="t.referenceMonth">• Ref. {{ formatMonthLabel(t.referenceMonth) }}</span>
+                  <span v-if="t.installmentNumber && t.installmentTotal" class="font-medium text-foreground">
+                    Parcela {{ t.installmentNumber }} de {{ t.installmentTotal }}
+                  </span>
+                  <span v-else>{{ formatInstallmentDuration(t.installmentTotal) }}</span>
+                  <span v-if="t.referenceMonth">• Início {{ formatMonthLabel(t.referenceMonth) }}</span>
                   <span v-if="t.notes" class="truncate max-w-xs">• {{ t.notes }}</span>
                 </div>
               </div>

@@ -4,7 +4,7 @@ import { db } from '../../database'
 import { transactions } from '../../database/schema'
 import { requireAuthUser } from '../../utils/auth'
 import { getHouseholdVisibility } from '../../utils/household'
-import { hydrateTransactions } from '../../utils/transactions'
+import { hydrateTransactions, isDebtActiveInMonth } from '../../utils/transactions'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
@@ -13,6 +13,11 @@ export default defineEventHandler(async (event) => {
   const page = Math.max(Number(query.page ?? 1), 1)
   const limit = Math.max(Number(query.limit ?? 10), 1)
   const offset = (page - 1) * limit
+  const targetReferenceMonth =
+    typeof query.referenceMonth === 'string' && /^\d{4}-\d{2}$/.test(query.referenceMonth)
+      ? query.referenceMonth
+      : undefined
+  const isDebtQuery = query.kind === 'debt'
 
   const visibility = await getHouseholdVisibility(userId)
   const conditions = [inArray(transactions.userId, visibility.memberIds)]
@@ -23,8 +28,8 @@ export default defineEventHandler(async (event) => {
   if (typeof query.kind === 'string' && query.kind) {
     conditions.push(eq(transactions.kind, query.kind))
   }
-  if (typeof query.referenceMonth === 'string' && query.referenceMonth) {
-    conditions.push(eq(transactions.referenceMonth, query.referenceMonth))
+  if (targetReferenceMonth && !isDebtQuery) {
+    conditions.push(eq(transactions.referenceMonth, targetReferenceMonth))
   }
   if (typeof query.accountId === 'string' && query.accountId) {
     conditions.push(eq(transactions.accountId, query.accountId))
@@ -52,6 +57,31 @@ export default defineEventHandler(async (event) => {
 
   const whereExpr = and(...conditions)
 
+  if (isDebtQuery && targetReferenceMonth) {
+    const allDebtRows = await db
+      .select()
+      .from(transactions)
+      .where(whereExpr)
+      .orderBy(desc(transactions.createdAt))
+
+    const activeInMonth = allDebtRows.filter((row) =>
+      isDebtActiveInMonth(row, targetReferenceMonth),
+    )
+    const total = activeInMonth.length
+    const paginatedRows = activeInMonth.slice(offset, offset + limit)
+    const data = await hydrateTransactions(paginatedRows, true, targetReferenceMonth)
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    }
+  }
+
   const [countRes] = await db
     .select({ total: sql<number>`COUNT(*)` })
     .from(transactions)
@@ -67,7 +97,7 @@ export default defineEventHandler(async (event) => {
     .limit(limit)
     .offset(offset)
 
-  const data = await hydrateTransactions(rows, true)
+  const data = await hydrateTransactions(rows, true, targetReferenceMonth)
 
   return {
     data,

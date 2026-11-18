@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '../database'
-import { accounts, cards, categories, transactions } from '../database/schema'
+import { accounts, cards, categories, debtPayments, transactions } from '../database/schema'
 import { badRequest } from './auth'
 import { assertUserBelongsToFamily, getPublicUsersMap } from './household'
 import {
@@ -10,17 +10,52 @@ import {
   findOneVisibleCategory,
 } from './resources'
 
+export function getDebtStartMonth(row: {
+  referenceMonth?: string | null
+  occurredAt: string
+}): string {
+  if (row.referenceMonth && /^\d{4}-\d{2}$/.test(row.referenceMonth)) {
+    return row.referenceMonth
+  }
+  return String(row.occurredAt).slice(0, 7)
+}
+
+export function getMonthsDiff(startYm: string, targetYm: string): number {
+  const [sy, sm] = startYm.split('-').map(Number)
+  const [ty, tm] = targetYm.split('-').map(Number)
+  if (!sy || !sm || !ty || !tm) return 0
+  return (ty - sy) * 12 + (tm - sm)
+}
+
+export function isDebtActiveInMonth(
+  row: {
+    kind?: string | null
+    referenceMonth?: string | null
+    occurredAt: string
+    installmentTotal?: number | null
+  },
+  targetYm: string,
+): boolean {
+  if (row.kind !== 'debt') return row.referenceMonth === targetYm
+  const startYm = getDebtStartMonth(row)
+  const diff = getMonthsDiff(startYm, targetYm)
+  const total = Math.max(Number(row.installmentTotal || 1), 1)
+  return diff >= 0 && diff < total
+}
+
 export async function hydrateTransactions(
   rows: Array<typeof transactions.$inferSelect>,
-  includeOwner = true
+  includeOwner = true,
+  targetMonth?: string,
 ) {
   if (rows.length === 0) return []
 
   const accountIds = Array.from(new Set(rows.map((r) => r.accountId).filter(Boolean) as string[]))
   const cardIds = Array.from(new Set(rows.map((r) => r.cardId).filter(Boolean) as string[]))
   const categoryIds = Array.from(new Set(rows.map((r) => r.categoryId).filter(Boolean) as string[]))
+  const debtIds = rows.filter((r) => r.kind === 'debt').map((r) => r.id)
 
-  const [accRows, cardRows, catRows, usersMap] = await Promise.all([
+  const [accRows, cardRows, catRows, usersMap, debtPaymentRows] = await Promise.all([
     accountIds.length > 0
       ? db.select().from(accounts).where(inArray(accounts.id, accountIds))
       : Promise.resolve([]),
@@ -33,20 +68,60 @@ export async function hydrateTransactions(
     includeOwner
       ? getPublicUsersMap(rows.map((r) => r.userId))
       : Promise.resolve(new Map()),
+    debtIds.length > 0
+      ? db.select().from(debtPayments).where(inArray(debtPayments.transactionId, debtIds))
+      : Promise.resolve([]),
   ])
 
   const accMap = new Map(accRows.map((a) => [a.id, a]))
   const cardMap = new Map(cardRows.map((c) => [c.id, c]))
   const catMap = new Map(catRows.map((c) => [c.id, c]))
 
-  return rows.map((r) => ({
-    ...r,
-    amount: Number(r.amount),
-    account: r.accountId ? accMap.get(r.accountId) ?? null : null,
-    card: r.cardId ? cardMap.get(r.cardId) ?? null : null,
-    category: r.categoryId ? catMap.get(r.categoryId) ?? null : null,
-    ...(includeOwner ? { owner: usersMap.get(r.userId) ?? null } : {}),
-  }))
+  const paymentsByDebt = new Map<string, Array<typeof debtPayments.$inferSelect>>()
+  for (const p of debtPaymentRows) {
+    const list = paymentsByDebt.get(p.transactionId) ?? []
+    list.push(p)
+    paymentsByDebt.set(p.transactionId, list)
+  }
+
+  return rows.map((r) => {
+    const debtPaidList = paymentsByDebt.get(r.id) ?? []
+    const paidMonths = debtPaidList.map((p) => p.referenceMonth)
+
+    let status = r.status
+    let paidAt = r.paidAt
+    let installmentNumber = r.installmentNumber
+
+    if (r.kind === 'debt') {
+      const startYm = getDebtStartMonth(r)
+      const effectiveMonth =
+        targetMonth && /^\d{4}-\d{2}$/.test(targetMonth) ? targetMonth : startYm
+      const diff = getMonthsDiff(startYm, effectiveMonth)
+      const total = Math.max(Number(r.installmentTotal || 1), 1)
+      if (diff >= 0 && diff < total) {
+        installmentNumber = diff + 1
+      }
+
+      if (targetMonth && /^\d{4}-\d{2}$/.test(targetMonth)) {
+        const paymentInMonth = debtPaidList.find((p) => p.referenceMonth === targetMonth)
+        status = paymentInMonth ? 'cleared' : 'pending'
+        paidAt = paymentInMonth ? paymentInMonth.paidAt : null
+      }
+    }
+
+    return {
+      ...r,
+      amount: Number(r.amount),
+      status,
+      paidAt,
+      installmentNumber,
+      paidMonths,
+      account: r.accountId ? accMap.get(r.accountId) ?? null : null,
+      card: r.cardId ? cardMap.get(r.cardId) ?? null : null,
+      category: r.categoryId ? catMap.get(r.categoryId) ?? null : null,
+      ...(includeOwner ? { owner: usersMap.get(r.userId) ?? null } : {}),
+    }
+  })
 }
 
 export interface CreateTxPayload {

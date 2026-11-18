@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { getRouterParam, readBody } from 'h3'
 import { db } from '../../database'
-import { transactions } from '../../database/schema'
+import { debtPayments, transactions } from '../../database/schema'
 import { badRequest, notFound, requireAuthUser } from '../../utils/auth'
 import { assertUserBelongsToFamily } from '../../utils/household'
 import {
@@ -9,7 +10,7 @@ import {
   findOneLinkableCard,
   findOneVisibleCategory,
 } from '../../utils/resources'
-import { hydrateTransactions } from '../../utils/transactions'
+import { getDebtStartMonth, hydrateTransactions } from '../../utils/transactions'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
@@ -28,6 +29,7 @@ export default defineEventHandler(async (event) => {
     dueDate?: string | null
     paidAt?: string | null
     referenceMonth?: string | null
+    paymentMonth?: string | null
     status?: string
     installmentNumber?: number | null
     installmentTotal?: number | null
@@ -139,11 +141,56 @@ export default defineEventHandler(async (event) => {
   if (body.dueDate !== undefined) {
     updates.dueDate = body.dueDate ? new Date(body.dueDate).toISOString().slice(0, 10) : null
   }
-  if (body.paidAt !== undefined) {
-    updates.paidAt = body.paidAt ? new Date(body.paidAt).toISOString() : null
-  }
   if (body.referenceMonth !== undefined) updates.referenceMonth = body.referenceMonth
-  if (body.status !== undefined) updates.status = body.status
+
+  const targetPaymentMonth =
+    isDebt && body.status !== undefined
+      ? (body.paymentMonth && /^\d{4}-\d{2}$/.test(body.paymentMonth)
+          ? body.paymentMonth
+          : getDebtStartMonth(tx))
+      : undefined
+
+  if (isDebt && targetPaymentMonth && body.status !== undefined) {
+    const isMarkingPaid = body.status === 'cleared' || body.status === 'paid'
+    if (isMarkingPaid) {
+      const paidIso = body.paidAt ? new Date(body.paidAt).toISOString() : new Date().toISOString()
+      const [existingPayment] = await db
+        .select()
+        .from(debtPayments)
+        .where(
+          and(
+            eq(debtPayments.transactionId, id),
+            eq(debtPayments.referenceMonth, targetPaymentMonth),
+          ),
+        )
+        .limit(1)
+      if (!existingPayment) {
+        await db.insert(debtPayments).values({
+          id: randomUUID(),
+          transactionId: id,
+          referenceMonth: targetPaymentMonth,
+          paidAt: paidIso,
+          userId,
+          createdAt: paidIso,
+        })
+      }
+    } else {
+      await db
+        .delete(debtPayments)
+        .where(
+          and(
+            eq(debtPayments.transactionId, id),
+            eq(debtPayments.referenceMonth, targetPaymentMonth),
+          ),
+        )
+    }
+  } else {
+    if (body.paidAt !== undefined) {
+      updates.paidAt = body.paidAt ? new Date(body.paidAt).toISOString() : null
+    }
+    if (body.status !== undefined) updates.status = body.status
+  }
+
   if (body.installmentNumber !== undefined) updates.installmentNumber = body.installmentNumber
   if (body.installmentTotal !== undefined) updates.installmentTotal = body.installmentTotal
   if (body.isShared !== undefined) updates.isShared = body.isShared
@@ -160,6 +207,6 @@ export default defineEventHandler(async (event) => {
 
   await db.update(transactions).set(updates).where(eq(transactions.id, id))
   const [saved] = await db.select().from(transactions).where(eq(transactions.id, id)).limit(1)
-  const [hydrated] = await hydrateTransactions([saved], true)
+  const [hydrated] = await hydrateTransactions([saved], true, targetPaymentMonth)
   return hydrated
 })

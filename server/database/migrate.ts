@@ -318,6 +318,24 @@ const MIGRATIONS: MigrationStep[] = [
       ON CONFLICT (key) DO NOTHING;
     `,
   },
+  {
+    id: '0008_add_debt_payments',
+    description: 'Adiciona tabela debt_payments para baixa mensal independente de financiamentos e parcelamentos',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".debt_payments (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL REFERENCES "${s}".transactions(id) ON DELETE CASCADE,
+        reference_month TEXT NOT NULL,
+        paid_at TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        UNIQUE(transaction_id, reference_month)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_debt_payments_month
+        ON "${s}".debt_payments(reference_month);
+    `,
+  },
 ]
 
 let migrationPromise: Promise<void> | null = null
