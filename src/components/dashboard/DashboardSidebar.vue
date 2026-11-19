@@ -9,6 +9,8 @@ import {
   ChevronRight,
   ClipboardCheck,
   CreditCard,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
   HeartHandshake,
   LayoutDashboard,
@@ -35,7 +37,7 @@ const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
-const { isDark } = storeToRefs(themeStore)
+const { isDark, hideValues } = storeToRefs(themeStore)
 const { invoiceAnalysisEnabled, isAdmin, featureFlags } = storeToRefs(authStore)
 
 onMounted(() => {
@@ -66,6 +68,10 @@ const navItems = computed(() =>
 
 function toggleTheme() {
   themeStore.toggle()
+}
+
+function togglePrivacy() {
+  themeStore.togglePrivacy()
 }
 
 function logout() {
@@ -141,6 +147,19 @@ function logout() {
           <UserCircle class="h-4 w-4 shrink-0" aria-hidden="true" />
           <span v-show="mobileOpen || !collapsed" class="truncate">Perfil & Casal</span>
         </RouterLink>
+
+        <button
+          type="button"
+          class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          :title="hideValues ? 'Mostrar valores' : 'Ocultar valores (Modo Privacidade)'"
+          @click="togglePrivacy"
+        >
+          <EyeOff v-if="hideValues" class="h-4 w-4 shrink-0 text-primary" />
+          <Eye v-else class="h-4 w-4 shrink-0" />
+          <span v-show="mobileOpen || !collapsed" class="truncate">
+            {{ hideValues ? 'Valores ocultos' : 'Ocultar valores' }}
+          </span>
+        </button>
 
         <button
           type="button"

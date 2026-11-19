@@ -19,6 +19,7 @@ import {
   type DashboardPendingItem,
 } from '@/stores/dashboard/dashboard.store'
 import { useAccountsStore } from '@/stores/accounts/accounts.store'
+import { useThemeStore } from '@/stores/theme/theme.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import { recurringApi } from '@/api/recurring.api'
 import { transactionsApi } from '@/api/transactions.api'
@@ -32,6 +33,8 @@ import {
   ChevronRight,
   CreditCard,
   ExternalLink,
+  Eye,
+  EyeOff,
   Flag,
   GraduationCap,
   Home,
@@ -50,8 +53,10 @@ import {
 
 const dashboardStore = useDashboardStore()
 const accountsStore = useAccountsStore()
+const themeStore = useThemeStore()
 const toastStore = useToastStore()
 
+const { hideValues } = storeToRefs(themeStore)
 const { accounts: vaultAccounts } = storeToRefs(accountsStore)
 
 const {
@@ -508,6 +513,17 @@ async function handleRemovePending(item: DashboardPendingItem) {
           <span>{{ endOfMonthLeftover != null ? 'Fechamento do mês' : 'Fim do mês: Quanto sobrou?' }}</span>
         </Button>
 
+        <Button
+          variant="outline"
+          size="icon"
+          class="hidden md:inline-flex h-9 w-9"
+          :title="hideValues ? 'Mostrar valores' : 'Ocultar valores (Modo Privacidade)'"
+          @click="themeStore.togglePrivacy()"
+        >
+          <EyeOff v-if="hideValues" class="h-4 w-4 text-primary" />
+          <Eye v-else class="h-4 w-4 text-muted-foreground" />
+        </Button>
+
         <Button size="default" class="gap-1.5" @click="openAddDrawer('recurring')">
           <Plus class="h-4 w-4" />
           <span>Adicionar conta</span>
@@ -517,7 +533,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
 
     <!-- 1. A EQUAÇÃO DO MÊS (Renda − Contas − Guardar = Livre pra Gastar) -->
     <Card class="overflow-hidden border-primary/25 shadow-sm">
-      <div class="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-3">
+      <div class="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5 sm:px-5 sm:py-3">
         <div class="flex items-center gap-2">
           <Sparkles class="h-4 w-4 text-primary" />
           <span class="text-xs font-semibold uppercase tracking-wider text-foreground">
@@ -535,116 +551,116 @@ async function handleRemovePending(item: DashboardPendingItem) {
         </Button>
       </div>
 
-      <CardContent class="p-5">
-        <div v-if="loading && pendingItems.length === 0 && paidItems.length === 0" class="grid grid-cols-1 gap-4 sm:grid-cols-4">
-          <div v-for="n in 4" :key="n" class="flex flex-col justify-between rounded-xl border border-border bg-background p-4 space-y-2.5">
-            <Skeleton class="h-3.5 w-24" />
-            <Skeleton class="h-7 w-32" />
-            <Skeleton class="h-3 w-36" />
+      <CardContent class="p-3.5 sm:p-5">
+        <div v-if="loading && pendingItems.length === 0 && paidItems.length === 0" class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+          <div v-for="n in 4" :key="n" class="flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4 space-y-2.5">
+            <Skeleton class="h-3.5 w-20 sm:w-24" />
+            <Skeleton class="h-6 sm:h-7 w-24 sm:w-32" />
+            <Skeleton class="h-3 w-28 sm:w-36" />
           </div>
         </div>
 
-        <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
           <!-- Bloco 1: Renda do Mês -->
           <button
             type="button"
-            class="group flex flex-col justify-between rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-primary/40"
+            class="group flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4 text-left transition-colors hover:border-primary/40"
             @click="openPlanDrawer"
           >
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">1. Renda no mês</span>
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground">1. Renda no mês</span>
               <Pencil class="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-            <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-foreground">
+            <div class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight tabular-nums text-foreground">
               {{ formatCurrency(configuredIncome) }}
             </div>
-            <span class="mt-1 text-[11px] text-muted-foreground">
-              {{ configuredIncome > 0 ? 'Clique para ajustar' : 'Clique para informar a renda' }}
+            <span class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate">
+              {{ configuredIncome > 0 ? 'Toque para ajustar' : 'Informar renda' }}
             </span>
           </button>
 
           <!-- Bloco 2: Contas a Pagar no Mês -->
-          <div class="flex flex-col justify-between rounded-xl border border-border bg-background p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">2. Contas do mês</span>
-              <Badge variant="secondary" class="text-[10px] px-1.5 py-0">
-                {{ totalBillsCount }} contas
+          <div class="flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4">
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">2. Contas do mês</span>
+              <Badge variant="secondary" class="text-[10px] px-1.5 py-0 shrink-0">
+                {{ totalBillsCount }}
               </Badge>
             </div>
-            <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-foreground">
+            <div class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight tabular-nums text-foreground">
               {{ formatCurrency(totalMonthBills) }}
             </div>
-            <span class="mt-1 text-[11px] text-muted-foreground">
-              Sobram {{ formatCurrency(afterBillsAmount) }} após contas
+            <span class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate tabular-nums">
+              Restam {{ formatCurrency(afterBillsAmount) }}
             </span>
           </div>
 
           <!-- Bloco 3: Quero Guardar -->
           <button
             type="button"
-            class="group flex flex-col justify-between rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-primary/40"
+            class="group flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4 text-left transition-colors hover:border-primary/40"
             @click="openPlanDrawer"
           >
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">3. Quero guardar</span>
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">3. Quero guardar</span>
               <Badge
                 v-if="configuredSavings > 0"
                 :variant="isSavingsPaid ? 'success' : 'warning'"
-                class="text-[10px] px-1.5 py-0"
+                class="text-[10px] px-1.5 py-0 shrink-0"
               >
-                {{ isSavingsPaid ? 'Guardado ✓' : 'Na lista' }}
+                {{ isSavingsPaid ? 'OK' : 'Meta' }}
               </Badge>
-              <PiggyBank v-else class="h-3.5 w-3.5 text-primary" />
+              <PiggyBank v-else class="h-3.5 w-3.5 text-primary shrink-0" />
             </div>
-            <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-primary">
+            <div class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight tabular-nums text-primary">
               {{ formatCurrency(configuredSavings) }}
             </div>
-            <span class="mt-1 text-[11px] text-muted-foreground">
+            <span class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate">
               {{
                 configuredSavings > 0
                   ? isSavingsPaid
-                    ? 'Já separado neste mês'
-                    : 'Entrou em "Falta Pagar" abaixo'
-                  : 'Clique para definir reserva'
+                    ? 'Já separado no mês'
+                    : 'Na lista Falta Pagar'
+                  : 'Definir reserva'
               }}
             </span>
           </button>
 
           <!-- Bloco 4: LIVRE PRA GASTAR -->
           <div
-            class="flex flex-col justify-between rounded-xl border p-4"
+            class="flex flex-col justify-between rounded-xl border p-3 sm:p-4"
             :class="
               freeToSpendAmount >= 0
                 ? 'border-emerald-500/30 bg-emerald-500/10'
                 : 'border-red-500/30 bg-red-500/10'
             "
           >
-            <div class="flex items-center justify-between">
+            <div class="flex items-center justify-between gap-1">
               <span
-                class="text-xs font-semibold uppercase tracking-wide"
+                class="text-[11px] sm:text-xs font-semibold uppercase tracking-wide truncate"
                 :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
               >
-                4. Livre pra gastar
+                4. Livre
               </span>
               <Wallet
-                class="h-4 w-4"
+                class="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0"
                 :class="freeToSpendAmount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'"
               />
             </div>
             <div
-              class="mt-2 text-2xl font-extrabold tracking-tight tabular-nums"
+              class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-extrabold tracking-tight tabular-nums"
               :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
             >
               {{ formatCurrency(freeToSpendAmount) }}
             </div>
             <span
               v-if="freeToSpendAmount > 0"
-              class="mt-1 text-[11px] font-medium text-emerald-700/80 dark:text-emerald-300/80"
+              class="mt-1 text-[10px] sm:text-[11px] font-medium text-emerald-700/80 dark:text-emerald-300/80 truncate tabular-nums"
             >
-              ~ {{ formatCurrency(freePerWeekAmount) }}/semana ({{ formatCurrency(freePerDayRemaining) }}/dia)
+              ~ {{ formatCurrency(freePerWeekAmount) }}/sem
             </span>
-            <span v-else class="mt-1 text-[11px] text-red-600/90">
-              Ajuste a renda ou metas
+            <span v-else class="mt-1 text-[10px] sm:text-[11px] text-red-600/90 truncate">
+              Ajuste renda/metas
             </span>
           </div>
         </div>

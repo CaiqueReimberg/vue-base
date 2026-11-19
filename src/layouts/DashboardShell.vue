@@ -1,11 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import DashboardSidebar from '@/components/dashboard/DashboardSidebar.vue'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth/auth.store'
+import { useThemeStore } from '@/stores/theme/theme.store'
 import { useToastStore } from '@/stores/toast/toast.store'
-import { ArrowLeft, ChevronRight, Home, Menu } from 'lucide-vue-next'
+import {
+  ArrowLeft,
+  ChevronRight,
+  ClipboardCheck,
+  Eye,
+  EyeOff,
+  FileSpreadsheet,
+  HeartHandshake,
+  Home,
+  LayoutDashboard,
+  Menu,
+  Moon,
+  PiggyBank,
+  Scale,
+  Sun,
+} from 'lucide-vue-next'
 
 const config = useRuntimeConfig()
 const appVersion = config.public.appVersion || '1.0.0'
@@ -16,7 +33,29 @@ const mobileOpen = ref(false)
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 const toastStore = useToastStore()
+const { isDark, hideValues } = storeToRefs(themeStore)
+const { invoiceAnalysisEnabled, featureFlags } = storeToRefs(authStore)
+
+const mobileBottomTabs = computed(() => {
+  const tabs: Array<{ to: string; label: string; icon: any; exact?: boolean }> = [
+    { to: '/', label: 'Início', icon: LayoutDashboard, exact: true },
+  ]
+  if (featureFlags.value.accounts !== false) {
+    tabs.push({ to: '/accounts', label: 'CDBs', icon: PiggyBank })
+  }
+  if (invoiceAnalysisEnabled.value) {
+    tabs.push({ to: '/invoices', label: 'Faturas', icon: FileSpreadsheet })
+  }
+  if (featureFlags.value.monthly_control !== false) {
+    tabs.push({ to: '/monthly-control', label: 'Fixas', icon: ClipboardCheck })
+  }
+  if (featureFlags.value.debts !== false && tabs.length < 4) {
+    tabs.push({ to: '/debts', label: 'Parcelas', icon: Scale })
+  }
+  return tabs
+})
 
 function checkRouteModuleAccess(path: string) {
   if (!authStore.profileLoaded) return
@@ -145,20 +184,40 @@ function handleGoBack() {
     />
 
     <div class="dashboard-shell__main">
-      <!-- Barra Mobile -->
+      <!-- Barra Mobile estilo App Nativo -->
       <header class="mobile-bar">
-        <button
-          type="button"
-          class="mobile-bar__menu"
-          aria-label="Abrir menu"
-          @click="mobileOpen = true"
-        >
-          <Menu class="h-5 w-5" />
-        </button>
-        <span class="mobile-bar__title">DuoPact</span>
+        <div class="flex items-center gap-2.5">
+          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-2xs">
+            <HeartHandshake class="h-3.5 w-3.5" />
+          </div>
+          <span class="mobile-bar__title">DuoPact</span>
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="mobile-bar__icon-btn"
+            :aria-label="hideValues ? 'Mostrar valores' : 'Ocultar valores'"
+            :title="hideValues ? 'Mostrar valores' : 'Ocultar valores'"
+            @click="themeStore.togglePrivacy()"
+          >
+            <EyeOff v-if="hideValues" class="h-4 w-4 text-primary" />
+            <Eye v-else class="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            class="mobile-bar__icon-btn"
+            :aria-label="isDark ? 'Modo claro' : 'Modo escuro'"
+            @click="themeStore.toggle()"
+          >
+            <Sun v-if="isDark" class="h-4 w-4" />
+            <Moon v-else class="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
-      <!-- Top Bar com Botão Voltar + Breadcrumb em todas as páginas internas -->
+      <!-- Top Bar com Botão Voltar + Breadcrumb + Olhinho em todas as páginas internas -->
       <div
         v-if="!isHome"
         class="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
@@ -198,18 +257,66 @@ function handleGoBack() {
               </template>
             </nav>
           </div>
+
+          <button
+            type="button"
+            class="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            :title="hideValues ? 'Mostrar valores' : 'Ocultar valores'"
+            @click="themeStore.togglePrivacy()"
+          >
+            <EyeOff v-if="hideValues" class="h-3.5 w-3.5 text-primary" />
+            <Eye v-else class="h-3.5 w-3.5" />
+            <span>{{ hideValues ? 'Valores ocultos' : 'Ocultar valores' }}</span>
+          </button>
         </div>
       </div>
 
       <div class="dashboard-shell__content">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <Transition name="dp-page" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </RouterView>
       </div>
 
-      <footer class="border-t border-border/60 py-4 px-6 text-center text-[11px] text-muted-foreground">
+      <footer class="dashboard-footer border-t border-border/60 py-4 px-6 text-center text-[11px] text-muted-foreground">
         <span>DuoPact Finanças a dois</span>
         <span class="mx-1.5">•</span>
         <span class="font-mono font-medium">v{{ appVersion }}</span>
       </footer>
+
+      <!-- Barra de Navegação Inferior Fixa no Mobile (App Bottom Nav) -->
+      <nav class="mobile-bottom-nav" aria-label="Navegação rápida mobile">
+        <RouterLink
+          v-for="tab in mobileBottomTabs"
+          :key="tab.to"
+          v-slot="{ href, navigate, isActive, isExactActive }"
+          :to="tab.to"
+          custom
+        >
+          <a
+            :href="href"
+            class="mobile-bottom-nav__item"
+            :class="{
+              'mobile-bottom-nav__item--active': tab.exact ? isExactActive : isActive,
+            }"
+            @click.prevent="navigate()"
+          >
+            <component :is="tab.icon" class="h-5 w-5" />
+            <span>{{ tab.label }}</span>
+          </a>
+        </RouterLink>
+
+        <button
+          type="button"
+          class="mobile-bottom-nav__item"
+          :class="{ 'mobile-bottom-nav__item--active': mobileOpen }"
+          @click="mobileOpen = !mobileOpen"
+        >
+          <Menu class="h-5 w-5" />
+          <span>Menu</span>
+        </button>
+      </nav>
     </div>
   </div>
 </template>
@@ -247,32 +354,34 @@ function handleGoBack() {
 .mobile-bar {
   display: none;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
   flex-shrink: 0;
-  padding: 0.65rem 1rem;
+  padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--dp-border);
   background: var(--color-background-soft);
 }
 
-.mobile-bar__menu {
+.mobile-bar__icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.35rem;
-  margin: -0.35rem;
+  width: 2.15rem;
+  height: 2.15rem;
   border: none;
   border-radius: 0.5rem;
   background: transparent;
-  color: var(--dp-text-primary);
+  color: var(--dp-text-secondary);
   cursor: pointer;
 }
 
-.mobile-bar__menu:hover {
+.mobile-bar__icon-btn:hover {
   background: var(--dp-surface);
+  color: var(--dp-text-primary);
 }
 
 .mobile-bar__title {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--dp-text-primary);
 }
@@ -280,6 +389,10 @@ function handleGoBack() {
 .dashboard-shell__content {
   flex: 1;
   min-width: 0;
+}
+
+.mobile-bottom-nav {
+  display: none;
 }
 
 @media (max-width: 767px) {
@@ -293,6 +406,50 @@ function handleGoBack() {
 
   .mobile-bar {
     display: flex;
+  }
+
+  .dashboard-footer {
+    padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-bottom-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 35;
+    height: calc(3.85rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--card) / 0.94);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .mobile-bottom-nav__item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .mobile-bottom-nav__item--active {
+    color: hsl(var(--primary));
+    font-weight: 700;
   }
 }
 </style>

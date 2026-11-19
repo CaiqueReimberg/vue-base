@@ -7,13 +7,57 @@
 
 html {
   overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   overflow-x: hidden;
+  overscroll-behavior-y: none;
 }
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh;
   font-weight: normal;
+}
+
+/* Modo Privacidade (Olhinho): desfoca todos os valores numéricos / monetários (.tabular-nums) */
+html.dp-hide-values .tabular-nums {
+  filter: blur(7px);
+  user-select: none;
+  transition: filter 0.18s ease;
+}
+
+.tabular-nums {
+  transition: filter 0.18s ease;
+}
+
+/* Transição suave entre telas no estilo App */
+.dp-page-enter-active,
+.dp-page-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.dp-page-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.dp-page-leave-to {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+/* Evita zoom automático do iOS ao focar inputs no mobile */
+@media (max-width: 767px) {
+  input[type='text'],
+  input[type='email'],
+  input[type='password'],
+  input[type='number'],
+  input[type='date'],
+  input[type='month'],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
