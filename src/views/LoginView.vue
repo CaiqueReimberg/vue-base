@@ -129,11 +129,9 @@ async function submit() {
   <div class="flex min-h-dvh items-center justify-center bg-background p-4">
     <Card class="w-full max-w-sm">
       <CardHeader class="items-center text-center pb-4">
-        <img
-          src="/icon.svg"
-          alt="DuoPact"
-          class="mb-2 h-11 w-11 rounded-xl shadow-sm"
-        />
+        <div class="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+          <HeartHandshake class="h-5 w-5" />
+        </div>
         <CardTitle class="text-xl">DuoPact</CardTitle>
         <CardDescription>
           {{

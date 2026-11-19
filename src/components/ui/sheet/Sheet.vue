@@ -30,7 +30,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
-  if (typeof document !== 'undefined') {
+  if (typeof document !== 'undefined' && props.open) {
     document.body.style.overflow = ''
   }
 })

@@ -193,11 +193,9 @@ function handleGoBack() {
           title="Abrir menu"
           @click="mobileOpen = !mobileOpen"
         >
-          <img
-            src="/icon.svg"
-            alt="DuoPact"
-            class="h-7 w-7 shrink-0 rounded-lg shadow-2xs"
-          />
+          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-2xs">
+            <HeartHandshake class="h-3.5 w-3.5" />
+          </div>
           <span class="mobile-bar__title">DuoPact</span>
         </button>
 

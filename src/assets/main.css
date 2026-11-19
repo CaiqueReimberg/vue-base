@@ -6,24 +6,12 @@
 @tailwind utilities;
 
 html {
-  overflow-x: hidden;
   -webkit-tap-highlight-color: transparent;
-  touch-action: pan-x pan-y;
 }
 
 body {
-  overflow-x: hidden;
-  overscroll-behavior-y: none;
-  touch-action: pan-x pan-y;
-}
-
-button,
-a,
-input,
-select,
-textarea,
-label {
-  touch-action: manipulation;
+  overflow-x: clip;
+  overflow-y: auto;
 }
 
 #app {

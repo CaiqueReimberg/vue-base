@@ -93,11 +93,9 @@ function logout() {
       <!-- Brand -->
       <div class="space-y-4">
         <div class="flex h-10 items-center gap-2.5 px-2">
-          <img
-            src="/icon.svg"
-            alt="DuoPact"
-            class="h-8 w-8 shrink-0 rounded-lg shadow-sm"
-          />
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+            <HeartHandshake class="h-4 w-4" />
+          </div>
           <div v-show="mobileOpen || !collapsed" class="flex flex-col leading-none">
             <span class="text-sm font-semibold tracking-tight text-foreground">DuoPact</span>
             <span class="text-[11px] text-muted-foreground">Finanças a dois</span>
