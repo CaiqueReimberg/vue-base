@@ -186,12 +186,20 @@ function handleGoBack() {
     <div class="dashboard-shell__main">
       <!-- Barra Mobile estilo App Nativo -->
       <header class="mobile-bar">
-        <div class="flex items-center gap-2.5">
-          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-2xs">
-            <HeartHandshake class="h-3.5 w-3.5" />
-          </div>
+        <button
+          type="button"
+          class="flex items-center gap-2.5 rounded-lg py-1 pr-2 text-left transition-opacity active:opacity-75"
+          aria-label="Abrir menu lateral"
+          title="Abrir menu"
+          @click="mobileOpen = !mobileOpen"
+        >
+          <img
+            src="/icon.svg"
+            alt="DuoPact"
+            class="h-7 w-7 shrink-0 rounded-lg shadow-2xs"
+          />
           <span class="mobile-bar__title">DuoPact</span>
-        </div>
+        </button>
 
         <div class="flex items-center gap-1">
           <button
