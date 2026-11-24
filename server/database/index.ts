@@ -252,19 +252,59 @@ function createSqliteDb() {
 let dbInstance: ReturnType<typeof createSqliteDb>
 let pgPool: pg.Pool | null = null
 
+function cleanDatabaseUrl(raw: string): string {
+  return raw.trim().replace(/^["']|["']$/g, '')
+}
+
 if (process.env.DATABASE_URL) {
+  const connectionString = cleanDatabaseUrl(process.env.DATABASE_URL)
+  const isLocalHost = /@(localhost|127\.0\.0\.1)/.test(connectionString)
+  const isServerless = Boolean(process.env.VERCEL)
+
   pgPool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString,
+    ssl: isLocalHost ? undefined : { rejectUnauthorized: false },
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    // Em serverless cada instância deve segurar poucas conexões e soltá-las rápido,
+    // evitando reaproveitar sockets que o proxy da Railway já derrubou.
+    max: isServerless ? 3 : 10,
+    idleTimeoutMillis: isServerless ? 5_000 : 30_000,
+    connectionTimeoutMillis: 15_000,
+    allowExitOnIdle: isServerless,
   })
+
+  // Sem esse handler, um socket morto em cliente ocioso derruba o processo/requisição
+  pgPool.on('error', (err) => {
+    console.error('[DuoPact] Erro em conexão ociosa do pool (será descartada):', err.message)
+  })
+
   dbInstance = drizzlePg(pgPool, { schema: pgSchema }) as unknown as ReturnType<typeof createSqliteDb>
 } else {
   dbInstance = createSqliteDb()
 }
 
 export async function ensureDatabaseReady(): Promise<void> {
-  if (pgPool) {
-    await runPostgresMigrations(pgPool, pgSchema.DB_SCHEMA_NAME)
+  if (!pgPool) return
+
+  const maxAttempts = 4
+  let lastError: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await runPostgresMigrations(pgPool, pgSchema.DB_SCHEMA_NAME)
+      return
+    } catch (err) {
+      lastError = err
+      console.error(
+        `[DuoPact] Falha ao preparar banco (tentativa ${attempt}/${maxAttempts}):`,
+        err instanceof Error ? err.message : err,
+      )
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 400 * attempt))
+      }
+    }
   }
+  throw lastError
 }
 
 export const db = dbInstance
