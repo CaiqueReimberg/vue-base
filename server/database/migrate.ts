@@ -460,13 +460,20 @@ export function runPostgresMigrations(pool: pg.Pool, schemaName: string): Promis
       await client.query('COMMIT')
       console.log(`[DuoPact Migration] Schema "${safeSchema}" pronto e atualizado!`)
     } catch (err) {
-      await client.query('ROLLBACK')
-      migrationPromise = null
+      try {
+        await client.query('ROLLBACK')
+      } catch {
+        // conexão já morreu: ignora para não mascarar o erro original
+      }
       throw err
     } finally {
       client.release()
     }
-  })()
+  })().catch((err) => {
+    // Qualquer falha (inclusive ao conectar) limpa o cache: a próxima chamada tenta de novo
+    migrationPromise = null
+    throw err
+  })
 
   return migrationPromise
 }
