@@ -336,6 +336,57 @@ const MIGRATIONS: MigrationStep[] = [
         ON "${s}".debt_payments(reference_month);
     `,
   },
+  {
+    id: '0009_add_savings_goals',
+    description: 'Adiciona metas de poupança e seus aportes para acompanhar progresso',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".savings_goals (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        target_amount DOUBLE PRECISION NOT NULL,
+        target_date TEXT,
+        is_shared BOOLEAN NOT NULL DEFAULT TRUE,
+        archived_at TEXT,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        family_id TEXT REFERENCES "${s}".families(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS "${s}".savings_contributions (
+        id TEXT PRIMARY KEY,
+        goal_id TEXT NOT NULL REFERENCES "${s}".savings_goals(id) ON DELETE CASCADE,
+        amount DOUBLE PRECISION NOT NULL,
+        contributed_at TEXT NOT NULL,
+        note TEXT,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_savings_contributions_goal
+        ON "${s}".savings_contributions(goal_id);
+    `,
+  },
+  {
+    id: '0010_add_goal_account_link',
+    description: 'Adiciona vinculo account_id em savings_goals para conectar Metas aos CDBs e Contas',
+    up: (s) => `
+      ALTER TABLE "${s}".savings_goals
+        ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES "${s}".accounts(id) ON DELETE SET NULL;
+    `,
+  },
+  {
+    id: '0011_add_user_is_premium',
+    description: 'Adiciona coluna is_premium na tabela users para controle de acesso completo vs somente perfil',
+    up: (s) => `
+      ALTER TABLE "${s}".users
+        ADD COLUMN IF NOT EXISTS is_premium BOOLEAN NOT NULL DEFAULT FALSE;
+
+      UPDATE "${s}".users
+        SET is_premium = TRUE
+        WHERE is_admin = TRUE;
+    `,
+  },
 ]
 
 let migrationPromise: Promise<void> | null = null

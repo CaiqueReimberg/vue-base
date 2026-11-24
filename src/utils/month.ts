@@ -5,13 +5,12 @@ export function currentReferenceMonth(): string {
   return `${y}-${m}`
 }
 
+const SHORT_MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
 export function formatPeriodLabel(referenceMonth: string): string {
   const [y, m] = referenceMonth.split('-').map(Number)
-  const raw = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', {
-    month: 'long',
-    year: 'numeric',
-  })
-  return raw.charAt(0).toUpperCase() + raw.slice(1)
+  const monthName = SHORT_MONTHS[(m || 1) - 1] || 'Mês'
+  return `${monthName} ${y}`
 }
 
 export function shiftReferenceMonth(referenceMonth: string, delta: number): string {

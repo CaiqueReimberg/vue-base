@@ -378,14 +378,14 @@ async function confirmRemove() {
     <Card>
       <CardContent class="p-5 space-y-4">
         <template v-if="loading && expenseItems.length === 0">
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
-            <div v-for="n in 3" :key="n" :class="n > 1 ? 'sm:pl-6 space-y-2' : 'space-y-2'">
-              <Skeleton class="h-3.5 w-28" />
-              <Skeleton class="h-7 w-32" />
-              <Skeleton class="h-3 w-24" />
+          <div class="grid grid-cols-3 gap-3 sm:gap-4 sm:divide-x sm:divide-border">
+            <div v-for="n in 3" :key="n" :class="n > 1 ? 'sm:pl-6 space-y-1.5' : 'space-y-1.5'">
+              <Skeleton class="h-3 w-16 sm:w-28" />
+              <Skeleton class="h-5 sm:h-7 w-20 sm:w-32" />
+              <Skeleton class="h-2.5 w-14 sm:w-24" />
             </div>
           </div>
-          <Skeleton class="h-2 w-full rounded-full" />
+          <Skeleton class="h-1.5 w-full rounded-full" />
         </template>
 
         <template v-else>
@@ -441,33 +441,27 @@ async function confirmRemove() {
 
     <!-- Loading Skeleton da Lista -->
     <Card v-if="loading && expenseItems.length === 0">
-      <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3.5 px-5">
-        <Skeleton class="h-4 w-48" />
-        <Skeleton class="h-3.5 w-32" />
+      <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3 px-4 sm:px-5">
+        <Skeleton class="h-3.5 w-32 sm:w-48" />
+        <Skeleton class="h-3 w-20 sm:w-32" />
       </CardHeader>
       <CardContent class="p-0">
         <ul class="divide-y divide-border" aria-label="Carregando contas fixas">
           <li
-            v-for="n in 4"
+            v-for="n in 3"
             :key="n"
-            class="flex items-center justify-between gap-4 px-5 py-4"
+            class="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-4"
           >
-            <div class="flex items-center gap-3.5">
-              <Skeleton class="h-10 w-10 rounded-xl" />
-              <div class="space-y-2">
-                <div class="flex items-center gap-2">
-                  <Skeleton class="h-4 w-32" />
-                  <Skeleton class="h-4 w-16 rounded-full" />
-                </div>
-                <Skeleton class="h-3 w-28" />
+            <div class="flex items-center gap-2.5">
+              <Skeleton class="h-8 w-8 sm:h-10 sm:w-10 rounded-xl" />
+              <div class="space-y-1">
+                <Skeleton class="h-3.5 w-24 sm:w-32" />
+                <Skeleton class="h-2.5 w-16 sm:w-28" />
               </div>
             </div>
-            <div class="flex items-center gap-3">
-              <div class="space-y-1.5 text-right">
-                <Skeleton class="h-4 w-24" />
-                <Skeleton class="h-3 w-16 ml-auto" />
-              </div>
-              <Skeleton class="h-8 w-16 rounded-md" />
+            <div class="flex items-center gap-2">
+              <Skeleton class="h-3.5 w-16 sm:w-24" />
+              <Skeleton class="h-7 w-12 sm:h-8 sm:w-16 rounded-md" />
             </div>
           </li>
         </ul>

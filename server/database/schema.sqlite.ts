@@ -13,6 +13,7 @@ export const users = sqliteTable('users', {
   password: text('password').notNull(),
   name: text('name'),
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  isPremium: integer('is_premium', { mode: 'boolean' }).notNull().default(false),
   invoiceAnalysisEnabled: integer('invoice_analysis_enabled', { mode: 'boolean' }).notNull().default(false),
   isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
@@ -195,6 +196,36 @@ export const monthlyPlans = sqliteTable('monthly_plans', {
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+})
+
+export const savingsGoals = sqliteTable('savings_goals', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  targetAmount: real('target_amount').notNull(),
+  targetDate: text('target_date'),
+  isShared: integer('is_shared', { mode: 'boolean' }).notNull().default(true),
+  archivedAt: text('archived_at'),
+  accountId: text('account_id').references(() => accounts.id, { onDelete: 'set null' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const savingsContributions = sqliteTable('savings_contributions', {
+  id: text('id').primaryKey(),
+  goalId: text('goal_id')
+    .notNull()
+    .references(() => savingsGoals.id, { onDelete: 'cascade' }),
+  amount: real('amount').notNull(),
+  contributedAt: text('contributed_at').notNull(),
+  note: text('note'),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
 })
 
 export const invoiceAnalyses = sqliteTable('invoice_analyses', {

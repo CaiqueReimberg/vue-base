@@ -12,6 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAccountsStore } from '@/stores/accounts/accounts.store'
 import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
+import { RouterLink } from 'vue-router'
+import { savingsGoalsApi, type SavingsGoal } from '@/api/savings-goals.api'
 import type { Account, AccountType } from '@/types/account'
 import { ownerBadgeLabel, isMyResource } from '@/utils/owner'
 import {
@@ -23,6 +25,7 @@ import {
   PiggyBank,
   Plus,
   Sparkles,
+  Target,
   Trash2,
   TrendingUp,
   Users,
@@ -112,10 +115,23 @@ const submittingMove = ref(false)
 // 3. Modal: Excluir
 const confirmOpen = ref(false)
 const accountToRemove = ref<Account | null>(null)
+const linkedGoalsList = ref<SavingsGoal[]>([])
+
+function goalsForAccount(accountId: string): SavingsGoal[] {
+  return linkedGoalsList.value.filter((g) => !g.archived && g.accountId === accountId)
+}
+
+async function refreshLinkedGoals() {
+  try {
+    linkedGoalsList.value = await savingsGoalsApi.list()
+  } catch {
+    // silencioso
+  }
+}
 
 onMounted(async () => {
   try {
-    await store.fetchAll()
+    await Promise.all([store.fetchAll(), refreshLinkedGoals()])
   } catch {
     toastStore.error(store.error ?? 'Erro ao carregar reservas.')
   }
@@ -205,6 +221,7 @@ async function handleConfirmMove() {
   submittingMove.value = true
   try {
     await store.adjustBalance(account.id, delta)
+    await refreshLinkedGoals()
     toastStore.success(
       moveOperation.value === 'deposit'
         ? `${formatCurrency.value(val)} guardados em ${account.name}!`
@@ -263,21 +280,30 @@ async function confirmRemove() {
         </p>
       </div>
 
-      <Button class="gap-1.5" @click="openCreateDrawer">
-        <Plus class="h-4 w-4" />
-        <span>Nova conta / CDB</span>
-      </Button>
+      <div class="flex flex-wrap items-center gap-2">
+        <RouterLink to="/goals">
+          <Button variant="outline" class="gap-1.5">
+            <Target class="h-4 w-4 text-primary" />
+            <span>Metas vinculadas</span>
+          </Button>
+        </RouterLink>
+
+        <Button class="gap-1.5" @click="openCreateDrawer">
+          <Plus class="h-4 w-4" />
+          <span>Nova conta / CDB</span>
+        </Button>
+      </div>
     </header>
 
     <!-- Card Principal: Visão Única do Total Guardado -->
     <Card class="border-emerald-500/25 bg-emerald-500/5">
       <CardContent class="p-5 space-y-4">
         <template v-if="loading && accounts.length === 0">
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
-            <div v-for="n in 3" :key="n" :class="n > 1 ? 'sm:pl-6 space-y-2' : 'space-y-2'">
-              <Skeleton class="h-3.5 w-28" />
-              <Skeleton class="h-8 w-36" />
-              <Skeleton class="h-3 w-24" />
+          <div class="grid grid-cols-3 gap-3 sm:gap-4 sm:divide-x sm:divide-border">
+            <div v-for="n in 3" :key="n" :class="n > 1 ? 'sm:pl-6 space-y-1.5' : 'space-y-1.5'">
+              <Skeleton class="h-3 w-16 sm:w-28" />
+              <Skeleton class="h-5 sm:h-7 w-20 sm:w-36" />
+              <Skeleton class="h-2.5 w-14 sm:w-24" />
             </div>
           </div>
         </template>
@@ -386,23 +412,23 @@ async function confirmRemove() {
     </div>
 
     <!-- Skeleton durante carregamento -->
-    <div v-if="loading && accounts.length === 0" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Card v-for="n in 4" :key="n">
-        <CardContent class="p-5 space-y-4">
+    <div v-if="loading && accounts.length === 0" class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+      <Card v-for="n in 2" :key="n">
+        <CardContent class="p-4 sm:p-5 space-y-3">
           <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <Skeleton class="h-10 w-10 rounded-xl" />
-              <div class="space-y-1.5">
-                <Skeleton class="h-4 w-32" />
-                <Skeleton class="h-3 w-20" />
+            <div class="flex items-center gap-2.5">
+              <Skeleton class="h-8 w-8 sm:h-10 sm:w-10 rounded-xl" />
+              <div class="space-y-1">
+                <Skeleton class="h-3.5 w-24 sm:w-32" />
+                <Skeleton class="h-2.5 w-16 sm:w-20" />
               </div>
             </div>
-            <Skeleton class="h-6 w-24" />
+            <Skeleton class="h-5 w-20 sm:w-24" />
           </div>
-          <Skeleton class="h-2 w-full rounded-full" />
+          <Skeleton class="h-1.5 w-full rounded-full" />
           <div class="flex gap-2">
-            <Skeleton class="h-9 flex-1 rounded-lg" />
-            <Skeleton class="h-9 flex-1 rounded-lg" />
+            <Skeleton class="h-8 flex-1 rounded-lg" />
+            <Skeleton class="h-8 flex-1 rounded-lg" />
           </div>
         </CardContent>
       </Card>
@@ -479,6 +505,29 @@ async function confirmRemove() {
               class="h-1.5"
               indicator-class="bg-emerald-600 dark:bg-emerald-500"
             />
+          </div>
+
+          <!-- Metas Conectadas a este CDB -->
+          <div
+            v-if="goalsForAccount(acc.id).length > 0"
+            class="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 space-y-1.5"
+          >
+            <RouterLink
+              v-for="g in goalsForAccount(acc.id)"
+              :key="g.id"
+              to="/goals"
+              class="block group/goal"
+            >
+              <div class="flex items-center justify-between text-xs">
+                <span class="inline-flex items-center gap-1.5 font-medium text-foreground group-hover/goal:text-primary transition-colors truncate">
+                  <Target class="h-3 w-3 text-primary shrink-0" />
+                  <span class="truncate">{{ g.name }}</span>
+                </span>
+                <span class="text-[11px] font-semibold tabular-nums text-primary shrink-0">
+                  {{ g.percent }}% de {{ formatCurrency(g.targetAmount) }}
+                </span>
+              </div>
+            </RouterLink>
           </div>
 
           <!-- Botões de Ação Rápida: Guardar e Retirar -->

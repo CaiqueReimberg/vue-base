@@ -38,14 +38,16 @@ export interface MonthlyCommitmentResponse {
   }
 }
 
-export type AgendaEventType = 'bill_due' | 'invoice_close' | 'invoice_due'
+export type AgendaEventType = 'bill_due' | 'debt_due' | 'invoice_close' | 'invoice_due'
 
 export interface AgendaEvent {
-  day: number
+  day: number | null
   type: AgendaEventType
   name: string
+  subtitle?: string | null
   value: number | null
   paid: boolean
+  isShared?: boolean
   referenceId: string
   ownerId?: string
 }

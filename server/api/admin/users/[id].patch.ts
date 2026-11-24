@@ -15,6 +15,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody<{
+    isPremium?: boolean
     invoiceAnalysisEnabled?: boolean
     isAdmin?: boolean
   }>(event)
@@ -34,6 +35,11 @@ export default defineEventHandler(async (event) => {
     badRequest('Você não pode remover a permissão de administrador da sua própria conta.')
   }
 
+  const nextIsPremium =
+    typeof body?.isPremium === 'boolean'
+      ? body.isPremium
+      : Boolean(targetUser.isPremium)
+
   const nextInvoiceAnalysis =
     typeof body?.invoiceAnalysisEnabled === 'boolean'
       ? body.invoiceAnalysisEnabled
@@ -47,6 +53,7 @@ export default defineEventHandler(async (event) => {
   await db
     .update(users)
     .set({
+      isPremium: nextIsPremium,
       invoiceAnalysisEnabled: nextInvoiceAnalysis,
       isAdmin: nextIsAdmin,
       updatedAt: now,
@@ -58,6 +65,7 @@ export default defineEventHandler(async (event) => {
     email: targetUser.email,
     name: targetUser.name ?? null,
     hasPartner: Boolean(targetUser.familyId),
+    isPremium: nextIsPremium,
     invoiceAnalysisEnabled: nextInvoiceAnalysis,
     isAdmin: nextIsAdmin,
     createdAt: targetUser.createdAt,

@@ -4,6 +4,8 @@ import { useThemeStore } from '@/stores/theme/theme.store'
 import { useAuthStore } from '@/stores/auth/auth.store'
 import { storeToRefs } from 'pinia'
 import {
+  BarChart3,
+  Target,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -38,7 +40,7 @@ const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const { isDark, hideValues } = storeToRefs(themeStore)
-const { invoiceAnalysisEnabled, isAdmin, featureFlags } = storeToRefs(authStore)
+const { invoiceAnalysisEnabled, isAdmin, isPremium, featureFlags } = storeToRefs(authStore)
 
 onMounted(() => {
   if (!authStore.profileLoaded) {
@@ -54,12 +56,15 @@ const allNavItems = [
   { to: '/debts', label: 'Dívidas & Parcelas', icon: Scale, exact: false, moduleKey: 'debts', requireInvoiceFlag: false, requireAdmin: false },
   { to: '/cards', label: 'Cartões', icon: CreditCard, exact: false, moduleKey: 'cards', requireInvoiceFlag: false, requireAdmin: false },
   { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false, moduleKey: 'agenda', requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/history', label: 'Histórico', icon: BarChart3, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
+  { to: '/goals', label: 'Metas de Poupança', icon: Target, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
   { to: '/admin/users', label: 'Usuários & Features', icon: ShieldCheck, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: true },
 ] as const
 
 const navItems = computed(() =>
   allNavItems.filter((item) => {
-    if (item.requireAdmin && !isAdmin.value) return false
+    if (item.requireAdmin) return isAdmin.value
+    if (!isPremium.value) return false
     if (item.moduleKey && featureFlags.value[item.moduleKey] === false) return false
     if (item.requireInvoiceFlag && !invoiceAnalysisEnabled.value) return false
     return true
@@ -145,10 +150,13 @@ function logout() {
           "
         >
           <UserCircle class="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span v-show="mobileOpen || !collapsed" class="truncate">Perfil & Casal</span>
+          <span v-show="mobileOpen || !collapsed" class="truncate">
+            {{ isPremium ? 'Perfil & Casal' : 'Meu Perfil' }}
+          </span>
         </RouterLink>
 
         <button
+          v-if="isPremium"
           type="button"
           class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           :title="hideValues ? 'Mostrar valores' : 'Ocultar valores (Modo Privacidade)'"

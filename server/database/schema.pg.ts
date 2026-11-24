@@ -17,6 +17,7 @@ export const users = dualpactSchema.table('users', {
   password: text('password').notNull(),
   name: text('name'),
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  isPremium: boolean('is_premium').notNull().default(false),
   invoiceAnalysisEnabled: boolean('invoice_analysis_enabled').notNull().default(false),
   isAdmin: boolean('is_admin').notNull().default(false),
   createdAt: text('created_at').notNull(),
@@ -199,6 +200,36 @@ export const monthlyPlans = dualpactSchema.table('monthly_plans', {
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+})
+
+export const savingsGoals = dualpactSchema.table('savings_goals', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  targetAmount: doublePrecision('target_amount').notNull(),
+  targetDate: text('target_date'),
+  isShared: boolean('is_shared').notNull().default(true),
+  archivedAt: text('archived_at'),
+  accountId: text('account_id').references(() => accounts.id, { onDelete: 'set null' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const savingsContributions = dualpactSchema.table('savings_contributions', {
+  id: text('id').primaryKey(),
+  goalId: text('goal_id')
+    .notNull()
+    .references(() => savingsGoals.id, { onDelete: 'cascade' }),
+  amount: doublePrecision('amount').notNull(),
+  contributedAt: text('contributed_at').notNull(),
+  note: text('note'),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
 })
 
 export const invoiceAnalyses = dualpactSchema.table('invoice_analyses', {

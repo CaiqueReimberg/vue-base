@@ -74,15 +74,82 @@ const activeCategoryFilter = ref<string | null>(null)
 const removeOpen = ref(false)
 const invoiceToRemove = ref<SavedInvoiceAnalysis | null>(null)
 
-// Fatura ativa exibida na tela (ou preview recém-destrinchado, ou uma salva)
+interface DisplayInvoiceItem extends ParsedInvoiceItem {
+  _sourceInvoiceId?: string
+  _sourceCardName?: string
+}
+
+// Meses que possuem 2 ou mais faturas salvas (habilita botão "Todos os cartões do mês")
+const multiCardMonths = computed(() => {
+  const map = new Map<string, { month: string; count: number; total: number }>()
+  for (const inv of savedInvoices.value) {
+    const prev = map.get(inv.referenceMonth) ?? {
+      month: inv.referenceMonth,
+      count: 0,
+      total: 0,
+    }
+    prev.count += 1
+    prev.total += Number(inv.totalAmount || 0)
+    map.set(inv.referenceMonth, prev)
+  }
+  return Array.from(map.values()).filter((m) => m.count >= 2)
+})
+
+const isCombinedView = computed(
+  () => Boolean(selectedInvoiceId.value && selectedInvoiceId.value.startsWith('all:')),
+)
+
+const combinedMonth = computed(() =>
+  isCombinedView.value && selectedInvoiceId.value ? selectedInvoiceId.value.slice(4) : null,
+)
+
+const combinedInvoices = computed(() => {
+  if (!combinedMonth.value) return []
+  return savedInvoices.value.filter((i) => i.referenceMonth === combinedMonth.value)
+})
+
+// Fatura individual ativa exibida na tela (quando não está na visão somada)
 const activeInvoice = computed<SavedInvoiceAnalysis | null>(() => {
+  if (isCombinedView.value) return null
   if (selectedInvoiceId.value) {
     return savedInvoices.value.find((i) => i.id === selectedInvoiceId.value) ?? null
   }
   return savedInvoices.value[0] ?? null
 })
 
-const activeItems = computed<ParsedInvoiceItem[]>(() => activeInvoice.value?.items ?? [])
+const hasActiveSelection = computed(
+  () => Boolean(activeInvoice.value) || combinedInvoices.value.length > 0,
+)
+
+const activeTitleLabel = computed(() => {
+  if (isCombinedView.value && combinedMonth.value) {
+    return `Todos os cartões (${combinedInvoices.value.length})`
+  }
+  return activeInvoice.value?.cardName ?? ''
+})
+
+const activePeriodText = computed(() => {
+  if (isCombinedView.value && combinedMonth.value) {
+    return formatPeriodLabel(combinedMonth.value)
+  }
+  return activeInvoice.value ? formatPeriodLabel(activeInvoice.value.referenceMonth) : ''
+})
+
+const activeItems = computed<DisplayInvoiceItem[]>(() => {
+  if (isCombinedView.value) {
+    const merged: DisplayInvoiceItem[] = []
+    for (const inv of combinedInvoices.value) {
+      for (const item of inv.items) {
+        const tagged = item as DisplayInvoiceItem
+        tagged._sourceInvoiceId = inv.id
+        tagged._sourceCardName = inv.cardName
+        merged.push(tagged)
+      }
+    }
+    return merged.sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+  }
+  return (activeInvoice.value?.items ?? []) as DisplayInvoiceItem[]
+})
 
 const activeTotal = computed(() =>
   activeItems.value.reduce((sum, i) => sum + Number(i.amount || 0), 0),
@@ -256,8 +323,10 @@ async function handleReanalyzeSavedInvoice(inv: SavedInvoiceAnalysis) {
   }
 }
 
-async function handleItemCategoryChange() {
-  const inv = activeInvoice.value
+async function handleItemCategoryChange(changedItem?: DisplayInvoiceItem) {
+  const targetInvId = changedItem?._sourceInvoiceId || activeInvoice.value?.id
+  if (!targetInvId) return
+  const inv = savedInvoices.value.find((i) => i.id === targetInvId)
   if (!inv) return
   try {
     await invoicesApi.updateItems(inv.id, inv.items)
@@ -395,8 +464,32 @@ async function confirmRemove() {
       </Button>
     </header>
 
-    <!-- Seletor de Faturas Salvas -->
+    <!-- Seletor de Faturas Salvas + Visão Somada por Mês -->
     <div v-if="savedInvoices.length > 0" class="flex flex-wrap items-center gap-2">
+      <!-- Botões de Visão Somada ("Todos os cartões do mês") quando há 2+ faturas no mesmo mês -->
+      <button
+        v-for="mc in multiCardMonths"
+        :key="`all-${mc.month}`"
+        type="button"
+        class="inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-medium transition-all"
+        :class="
+          selectedInvoiceId === `all:${mc.month}`
+            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold shadow-2xs'
+            : 'border-emerald-500/30 bg-emerald-500/5 text-foreground hover:bg-emerald-500/10'
+        "
+        @click="
+          selectedInvoiceId = `all:${mc.month}`;
+          activeCategoryFilter = null
+        "
+      >
+        <Layers class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+        <span>Todos de {{ formatPeriodLabel(mc.month) }} ({{ mc.count }})</span>
+        <Badge variant="success" class="text-[10px] px-1.5 py-0">
+          {{ formatCurrency(mc.total) }}
+        </Badge>
+      </button>
+
+      <!-- Botões Individuais de Cada Cartão -->
       <button
         v-for="inv in savedInvoices"
         :key="inv.id"
@@ -421,47 +514,48 @@ async function confirmRemove() {
     </div>
 
     <!-- Skeleton durante carregamento -->
-    <div v-if="loading" class="space-y-6">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div v-if="loading" class="space-y-4">
+      <div class="grid grid-cols-3 gap-2.5 sm:gap-4">
         <Card v-for="n in 3" :key="n">
-          <CardContent class="p-5 space-y-2">
-            <Skeleton class="h-3.5 w-28" />
-            <Skeleton class="h-7 w-36" />
-            <Skeleton class="h-3 w-24" />
+          <CardContent class="p-3 sm:p-5 space-y-1.5">
+            <Skeleton class="h-3 w-16 sm:w-28" />
+            <Skeleton class="h-5 sm:h-7 w-20 sm:w-36" />
+            <Skeleton class="h-2.5 w-14 sm:w-24" />
           </CardContent>
         </Card>
       </div>
-      <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card v-for="n in 2" :key="n">
-          <CardContent class="p-5 space-y-4">
-            <Skeleton class="h-4 w-48" />
-            <div v-for="k in 5" :key="k" class="space-y-2">
-              <Skeleton class="h-4 w-full" />
-              <Skeleton class="h-2 w-full rounded-full" />
+          <CardContent class="p-4 sm:p-5 space-y-3">
+            <Skeleton class="h-3.5 w-36 sm:w-48" />
+            <div v-for="k in 3" :key="k" class="space-y-1.5">
+              <Skeleton class="h-3.5 w-full" />
+              <Skeleton class="h-1.5 w-full rounded-full" />
             </div>
           </CardContent>
         </Card>
       </div>
     </div>
 
-    <!-- CONTEÚDO DA FATURA DESTRINCHADA -->
-    <template v-else-if="activeInvoice">
+    <!-- CONTEÚDO DA FATURA DESTRINCHADA (INDIVIDUAL OU SOMADA DO MÊS) -->
+    <template v-else-if="hasActiveSelection">
       <!-- 1. Três Cards de Resumo (Total, Categoria #1, Vilão #1) -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardContent class="p-5">
             <div class="flex items-center justify-between">
               <span class="text-xs font-medium text-muted-foreground">
-                Total da fatura ({{ activeInvoice.cardName }})
+                Total ({{ activeTitleLabel }})
               </span>
-              <CreditCard class="h-4 w-4 text-primary" />
+              <Layers v-if="isCombinedView" class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <CreditCard v-else class="h-4 w-4 text-primary" />
             </div>
             <div class="mt-2 text-2xl font-bold tracking-tight tabular-nums text-foreground">
               {{ formatCurrency(activeTotal) }}
             </div>
             <div class="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-              <span>{{ activeItems.length }} compras em {{ formatPeriodLabel(activeInvoice.referenceMonth) }}</span>
-              <div class="flex items-center gap-2">
+              <span>{{ activeItems.length }} compras em {{ activePeriodText }}</span>
+              <div v-if="activeInvoice" class="flex items-center gap-2">
                 <button
                   type="button"
                   class="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
@@ -682,6 +776,13 @@ async function confirmRemove() {
                     <span class="text-sm font-medium text-foreground truncate">
                       {{ item.merchant || item.description }}
                     </span>
+                    <Badge
+                      v-if="isCombinedView && item._sourceCardName"
+                      variant="secondary"
+                      class="text-[10px] px-1.5 py-0 font-normal"
+                    >
+                      {{ item._sourceCardName }}
+                    </Badge>
                     <Badge v-if="item.installment" variant="outline" class="text-[10px] px-1.5 py-0">
                       Parcela {{ item.installment }}
                     </Badge>
@@ -700,7 +801,7 @@ async function confirmRemove() {
                   v-model="item.category"
                   class="h-7 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                   title="Alterar categoria deste item"
-                  @change="handleItemCategoryChange"
+                  @change="handleItemCategoryChange(item)"
                 >
                   <option v-for="cat in INVOICE_CATEGORIES" :key="cat" :value="cat">
                     {{ cat }}

@@ -4,6 +4,7 @@ import { db } from '../database'
 import {
   cards,
   categories,
+  debtPayments,
   monthlyPlans,
   recurringMonthOverrides,
   recurringPayments,
@@ -19,8 +20,9 @@ import {
   roundMoney,
   transactionInBillingCycle,
 } from './billing'
-import { getHouseholdVisibility } from './household'
+import { getHouseholdVisibility, getSystemFeatureFlagsMap } from './household'
 import { findVisibleActiveRecurringsForMonth } from './recurring'
+import { getDebtStartMonth, getMonthsDiff, isDebtActiveInMonth } from './transactions'
 
 async function buildRecurringBillItems(userId: string, referenceMonth: string) {
   const recurrings = await findVisibleActiveRecurringsForMonth(userId, referenceMonth)
@@ -294,69 +296,153 @@ export async function getMonthlyCommitment(userId: string, month?: string) {
 
 export async function getAgenda(userId: string, month?: string) {
   const referenceMonth = resolveReferenceMonth(month)
-  const [recurringItems, cardItems, visibleCards] = await Promise.all([
+  const visibility = await getHouseholdVisibility(userId)
+
+  const [recurringItems, systemFlags, debtRows] = await Promise.all([
     buildRecurringBillItems(userId, referenceMonth),
-    buildCardInvoiceItems(userId, referenceMonth),
-    findVisibleCardsRaw(userId),
+    getSystemFeatureFlagsMap(),
+    db
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          inArray(transactions.userId, visibility.memberIds),
+          eq(transactions.type, 'expense'),
+          eq(transactions.kind, 'debt'),
+          visibility.partnerIds.length > 0
+            ? or(
+                eq(transactions.userId, userId),
+                and(inArray(transactions.userId, visibility.partnerIds), eq(transactions.isShared, true)),
+              )!
+            : eq(transactions.userId, userId),
+        ),
+      ),
   ])
 
+  const activeDebts = debtRows.filter((d) => isDebtActiveInMonth(d, referenceMonth))
+  const activeDebtIds = activeDebts.map((d) => d.id)
+  const debtPaymentsInMonth =
+    activeDebtIds.length > 0
+      ? await db
+          .select()
+          .from(debtPayments)
+          .where(
+            and(
+              inArray(debtPayments.transactionId, activeDebtIds),
+              eq(debtPayments.referenceMonth, referenceMonth),
+            ),
+          )
+      : []
+
+  const paidDebtIds = new Set(debtPaymentsInMonth.map((p) => p.transactionId))
+
   const events: Array<{
-    day: number
-    type: 'bill_due' | 'invoice_close' | 'invoice_due'
+    day: number | null
+    type: 'bill_due' | 'debt_due' | 'invoice_close' | 'invoice_due'
     name: string
+    subtitle: string | null
     value: number | null
     paid: boolean
+    isShared: boolean
     referenceId: string
     ownerId?: string
   }> = []
 
   for (const bill of recurringItems) {
-    if (bill.dueDay == null) continue
     events.push({
-      day: bill.dueDay,
+      day: bill.dueDay ?? null,
       type: 'bill_due',
       name: bill.name,
+      subtitle: bill.category ? `Conta fixa · ${bill.category}` : 'Conta fixa mensal',
       value: bill.value,
       paid: bill.paid,
+      isShared: Boolean(bill.isShared),
       referenceId: bill.id,
       ownerId: bill.ownerId,
     })
   }
 
-  const refDate = referenceMonthMidUtc(referenceMonth)
-  for (const card of visibleCards) {
-    const cycles = buildCyclesAroundReference(card.closingDay, card.dueDay, 3, 3, refDate)
+  for (const debt of activeDebts) {
+    const startYm = getDebtStartMonth(debt)
+    const diff = getMonthsDiff(startYm, referenceMonth)
+    const total = Math.max(Number(debt.installmentTotal || 1), 1)
+    const parcelNum = diff >= 0 && diff < total ? diff + 1 : 1
+    const dueDay = debt.dueDate
+      ? new Date(debt.dueDate).getUTCDate()
+      : debt.occurredAt
+        ? new Date(debt.occurredAt).getUTCDate()
+        : null
 
-    const closeCycle = cycles.find((c) => formatReferenceMonth(c.periodEnd) === referenceMonth)
-    if (closeCycle) {
-      const invoice = cardItems.find((i) => i.cardId === card.id)
-      events.push({
-        day: closeCycle.periodEnd.getUTCDate(),
-        type: 'invoice_close',
-        name: card.name,
-        value: null,
-        paid: invoice?.paid ?? false,
-        referenceId: card.id,
-        ownerId: card.ownerId,
-      })
-    }
+    events.push({
+      day: dueDay,
+      type: 'debt_due',
+      name: debt.description,
+      subtitle:
+        total > 1
+          ? `Financiamento / Parcela ${parcelNum} de ${total}`
+          : 'Financiamento / Parcela única',
+      value: roundMoney(Number(debt.amount)),
+      paid: paidDebtIds.has(debt.id),
+      isShared: Boolean(debt.isShared),
+      referenceId: debt.id,
+      ownerId: debt.userId,
+    })
+  }
 
-    const dueCycle = cycles.find((c) => formatReferenceMonth(c.dueDate) === referenceMonth)
-    if (dueCycle) {
-      const invoice = cardItems.find((i) => i.cardId === card.id)
-      events.push({
-        day: dueCycle.dueDate.getUTCDate(),
-        type: 'invoice_due',
-        name: card.name,
-        value: invoice?.invoiceValue ?? 0,
-        paid: invoice?.paid ?? false,
-        referenceId: card.id,
-        ownerId: card.ownerId,
-      })
+  // Somente exibe cartões manuais legados se o módulo "cards" estiver habilitado nas feature flags
+  if (systemFlags.cards !== false) {
+    const [cardItems, visibleCards] = await Promise.all([
+      buildCardInvoiceItems(userId, referenceMonth),
+      findVisibleCardsRaw(userId),
+    ])
+
+    const refDate = referenceMonthMidUtc(referenceMonth)
+    for (const card of visibleCards) {
+      if (!card.isActive) continue
+      const cycles = buildCyclesAroundReference(card.closingDay, card.dueDay, 3, 3, refDate)
+
+      const closeCycle = cycles.find((c) => formatReferenceMonth(c.periodEnd) === referenceMonth)
+      if (closeCycle) {
+        const invoice = cardItems.find((i) => i.cardId === card.id)
+        events.push({
+          day: closeCycle.periodEnd.getUTCDate(),
+          type: 'invoice_close',
+          name: card.name,
+          subtitle: 'Fechamento da fatura',
+          value: null,
+          paid: invoice?.paid ?? false,
+          isShared: true,
+          referenceId: card.id,
+          ownerId: card.ownerId,
+        })
+      }
+
+      const dueCycle = cycles.find((c) => formatReferenceMonth(c.dueDate) === referenceMonth)
+      if (dueCycle) {
+        const invoice = cardItems.find((i) => i.cardId === card.id)
+        if ((invoice?.invoiceValue ?? 0) > 0) {
+          events.push({
+            day: dueCycle.dueDate.getUTCDate(),
+            type: 'invoice_due',
+            name: `Fatura ${card.name}`,
+            subtitle: 'Vencimento da fatura',
+            value: invoice?.invoiceValue ?? 0,
+            paid: invoice?.paid ?? false,
+            isShared: true,
+            referenceId: card.id,
+            ownerId: card.ownerId,
+          })
+        }
+      }
     }
   }
 
-  events.sort((a, b) => a.day - b.day || a.type.localeCompare(b.type))
+  events.sort((a, b) => {
+    if (a.day == null && b.day == null) return a.name.localeCompare(b.name)
+    if (a.day == null) return 1
+    if (b.day == null) return -1
+    return a.day - b.day || a.name.localeCompare(b.name)
+  })
 
   return { month: referenceMonth, events }
 }
@@ -523,5 +609,160 @@ export async function upsertMonthlyPlan(
   })
 
   return getMonthlyPlan(userId, referenceMonth)
+}
+
+export interface MonthlyHistoryEntry {
+  month: string
+  hasPlan: boolean
+  isInheritedPlan: boolean
+  hasActivity: boolean
+  income: number
+  bills: number
+  billsPaid: number
+  billsPending: number
+  recurringTotal: number
+  debtsTotal: number
+  cardsTotal: number
+  savingsGoal: number
+  savingsPaid: boolean
+  saved: number
+  free: number
+  leftover: number | null
+}
+
+function shiftMonth(ym: string, delta: number): string {
+  const { year, monthIndex } = parseReferenceMonth(ym)
+  return formatReferenceMonth(new Date(Date.UTC(year, monthIndex + delta, 1)))
+}
+
+function expenseBelongsToMonth(
+  t: { kind: string | null; referenceMonth: string | null; occurredAt: string; installmentTotal: number | null },
+  ym: string
+): boolean {
+  if (t.kind === 'debt') return isDebtActiveInMonth(t, ym)
+  if (t.referenceMonth) return t.referenceMonth === ym
+  return String(t.occurredAt).slice(0, 7) === ym
+}
+
+/**
+ * Histórico dos últimos N meses (do mais antigo ao mais recente, terminando em `endMonth`).
+ * "bills" segue a mesma regra do card "Contas do mês": fixas + faturas + gastos avulsos fora do cartão.
+ * Meses sem plano próprio não herdam renda/meta de outros meses (hasPlan = false).
+ */
+export async function getMonthlyHistory(
+  userId: string,
+  months = 6,
+  endMonth?: string
+): Promise<{ months: MonthlyHistoryEntry[] }> {
+  const count = Math.min(Math.max(Math.floor(months) || 6, 1), 24)
+  const last = resolveReferenceMonth(endMonth)
+  const list = Array.from({ length: count }, (_, i) => shiftMonth(last, i - (count - 1)))
+
+  const visibility = await getHouseholdVisibility(userId)
+
+  const [allPlans, expenseRows, commitments] = await Promise.all([
+    db
+      .select()
+      .from(monthlyPlans)
+      .where(inArray(monthlyPlans.userId, visibility.memberIds))
+      .orderBy(desc(monthlyPlans.referenceMonth), desc(monthlyPlans.updatedAt)),
+    db
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          inArray(transactions.userId, visibility.memberIds),
+          eq(transactions.type, 'expense'),
+          visibility.partnerIds.length > 0
+            ? or(
+                eq(transactions.userId, userId),
+                and(inArray(transactions.userId, visibility.partnerIds), eq(transactions.isShared, true))
+              )!
+            : eq(transactions.userId, userId)
+        )
+      ),
+    Promise.all(list.map((m) => getMonthlyCommitment(userId, m))),
+  ])
+
+  const debtIds = expenseRows.filter((t) => t.kind === 'debt').map((t) => t.id)
+  const debtPaidRows =
+    debtIds.length > 0
+      ? await db
+          .select()
+          .from(debtPayments)
+          .where(inArray(debtPayments.transactionId, debtIds))
+      : []
+
+  const debtPaidSet = new Set(
+    debtPaidRows.map((p) => `${p.transactionId}:${p.referenceMonth}`)
+  )
+
+  const planByMonth = new Map<string, (typeof allPlans)[number]>()
+  for (const p of allPlans) {
+    if (!planByMonth.has(p.referenceMonth)) planByMonth.set(p.referenceMonth, p)
+  }
+  const latestConfiguredPlan = allPlans[0] ?? null
+
+  const standalone = expenseRows.filter((t) => !t.cardId)
+
+  const result: MonthlyHistoryEntry[] = list.map((month, idx) => {
+    const exactPlan = planByMonth.get(month)
+    const monthStandalone = standalone.filter((t) => expenseBelongsToMonth(t, month))
+
+    const standaloneTotal = monthStandalone.reduce((s, t) => s + Number(t.amount), 0)
+    const debtsTotal = monthStandalone
+      .filter((t) => t.kind === 'debt')
+      .reduce((s, t) => s + Number(t.amount), 0)
+
+    const standalonePaid = monthStandalone
+      .filter((t) => {
+        if (t.kind === 'debt') return debtPaidSet.has(`${t.id}:${month}`)
+        return t.status === 'cleared' || t.status === 'paid' || Boolean(t.paidAt)
+      })
+      .reduce((s, t) => s + Number(t.amount), 0)
+
+    const commitment = commitments[idx]
+    const recurringTotal = roundMoney(commitment.breakdown.recurringBills.total)
+    const cardsTotal = roundMoney(commitment.breakdown.cardInvoices.total)
+    const bills = roundMoney(commitment.totalCommitted + standaloneTotal)
+    const billsPaid = roundMoney(commitment.totalPaid + standalonePaid)
+    const billsPending = roundMoney(Math.max(bills - billsPaid, 0))
+
+    // Se o mês tem contas ativas mas ainda não teve um monthly_plan salvo diretamente nele,
+    // usa a renda/meta configurada no plano mais recente (igual a Home faz)
+    const fallbackPlan = !exactPlan && bills > 0 ? latestConfiguredPlan : null
+    const effectivePlan = exactPlan ?? fallbackPlan
+
+    const income = effectivePlan ? roundMoney(Number(effectivePlan.monthlyIncome)) : 0
+    const savingsGoal = effectivePlan ? roundMoney(Number(effectivePlan.savingsGoal)) : 0
+    const savingsPaid = Boolean(exactPlan?.savingsPaidAt)
+    const leftover =
+      exactPlan?.endOfMonthLeftover != null
+        ? roundMoney(Number(exactPlan.endOfMonthLeftover))
+        : null
+    const saved = roundMoney((savingsPaid ? savingsGoal : 0) + (leftover != null ? leftover : 0))
+    const hasActivity = Boolean(exactPlan) || bills > 0 || income > 0
+
+    return {
+      month,
+      hasPlan: Boolean(exactPlan),
+      isInheritedPlan: !exactPlan && Boolean(fallbackPlan),
+      hasActivity,
+      income,
+      bills,
+      billsPaid,
+      billsPending,
+      recurringTotal,
+      debtsTotal: roundMoney(debtsTotal),
+      cardsTotal,
+      savingsGoal,
+      savingsPaid,
+      saved,
+      free: roundMoney(income - bills - savingsGoal),
+      leftover,
+    }
+  })
+
+  return { months: result }
 }
 

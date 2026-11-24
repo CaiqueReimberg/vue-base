@@ -13,7 +13,32 @@ export interface MonthlyPlanResponse {
   isInherited: boolean
 }
 
+export interface MonthlyHistoryEntry {
+  month: string
+  hasPlan: boolean
+  isInheritedPlan?: boolean
+  hasActivity?: boolean
+  income: number
+  bills: number
+  billsPaid?: number
+  billsPending?: number
+  recurringTotal?: number
+  debtsTotal?: number
+  cardsTotal?: number
+  savingsGoal: number
+  savingsPaid: boolean
+  saved: number
+  free: number
+  leftover: number | null
+}
+
 export const dashboardApi = {
+  getHistory(months = 6, endMonth?: string): Promise<{ months: MonthlyHistoryEntry[] }> {
+    const q = new URLSearchParams({ months: String(months) })
+    if (endMonth) q.set('endMonth', endMonth)
+    return request(`/dashboard/history?${q.toString()}`)
+  },
+
   getMonthlyCommitment(month: string): Promise<MonthlyCommitmentResponse> {
     return request(
       `/dashboard/monthly-commitment?month=${encodeURIComponent(month)}`,

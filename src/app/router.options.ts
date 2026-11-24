@@ -39,6 +39,16 @@ export default <RouterConfig>{
           component: () => import('@/views/MonthlyControlView.vue'),
         },
         {
+          path: 'history',
+          name: 'history',
+          component: () => import('@/views/HistoryView.vue'),
+        },
+        {
+          path: 'goals',
+          name: 'goals',
+          component: () => import('@/views/SavingsGoalsView.vue'),
+        },
+        {
           path: 'agenda',
           name: 'agenda',
           component: () => import('@/views/AgendaView.vue'),

@@ -2,14 +2,44 @@
 const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 const AUTH_TOKEN_KEY = 'auth_token'
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 dias
+
+function readCookieToken(): string | null {
+  if (typeof document === 'undefined') return null
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${AUTH_TOKEN_KEY}=([^;]+)`))
+  return match?.[1] ? decodeURIComponent(match[1]) : null
+}
+
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null
+  const local = localStorage.getItem(AUTH_TOKEN_KEY)
+  if (local) return local
+  const cookie = readCookieToken()
+  if (cookie) {
+    localStorage.setItem(AUTH_TOKEN_KEY, cookie)
+    return cookie
+  }
+  return null
+}
+
+function setStoredToken(token: string | null) {
+  if (typeof window === 'undefined') return
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token)
+    document.cookie = `${AUTH_TOKEN_KEY}=${encodeURIComponent(token)}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY)
+    document.cookie = `${AUTH_TOKEN_KEY}=; Path=/; Max-Age=0; SameSite=Lax`
+  }
+}
 
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY)
-    if (token) headers['Authorization'] = `Bearer ${token}`
+  const token = getStoredToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
   }
   return headers
 }
@@ -43,9 +73,9 @@ async function request<T>(
     const err = await res.json().catch(() => ({ message: res.statusText }))
     const data = (err as { message?: string; statusMessage?: string; data?: { message?: string } })
     const message = data.data?.message ?? data.statusMessage ?? data.message ?? 'Não autorizado'
-    const hadSession = typeof window !== 'undefined' && !!localStorage.getItem(AUTH_TOKEN_KEY)
+    const hadSession = !!getStoredToken()
     if (hadSession) {
-      localStorage.removeItem(AUTH_TOKEN_KEY)
+      setStoredToken(null)
       if (typeof window !== 'undefined' && !isLoginPath()) {
         window.location.assign(loginPageHref())
       }
@@ -76,4 +106,4 @@ async function request<T>(
   return JSON.parse(text) as T
 }
 
-export { BASE_URL, request, AUTH_TOKEN_KEY }
+export { BASE_URL, request, AUTH_TOKEN_KEY, getStoredToken, setStoredToken }

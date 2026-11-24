@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
-import { readBody } from 'h3'
+import { readBody, setCookie } from 'h3'
 import { db } from '../../database'
 import { users } from '../../database/schema'
 import { badRequest, conflict, signJwt } from '../../utils/auth'
@@ -39,7 +39,14 @@ export default defineEventHandler(async (event) => {
     updatedAt: now,
   })
 
+  const token = signJwt({ sub: id, email })
+  setCookie(event, 'auth_token', token, {
+    path: '/',
+    maxAge: 60 * 60 * 24 * 30,
+    sameSite: 'lax',
+  })
+
   return {
-    access_token: signJwt({ sub: id, email }),
+    access_token: token,
   }
 })

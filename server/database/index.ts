@@ -31,6 +31,9 @@ function createSqliteDb() {
       password TEXT NOT NULL,
       name TEXT,
       family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      is_premium INTEGER NOT NULL DEFAULT 0,
+      invoice_analysis_enabled INTEGER NOT NULL DEFAULT 0,
+      is_admin INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -176,6 +179,29 @@ function createSqliteDb() {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS savings_goals (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      target_amount REAL NOT NULL,
+      target_date TEXT,
+      is_shared INTEGER NOT NULL DEFAULT 1,
+      archived_at TEXT,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS savings_contributions (
+      id TEXT PRIMARY KEY,
+      goal_id TEXT NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+      amount REAL NOT NULL,
+      contributed_at TEXT NOT NULL,
+      note TEXT,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS invoice_analyses (
       id TEXT PRIMARY KEY,
       card_name TEXT NOT NULL,
@@ -190,6 +216,19 @@ function createSqliteDb() {
       updated_at TEXT NOT NULL
     );
   `)
+
+  const userCols = (sqlite.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map(
+    (c) => c.name,
+  )
+  if (!userCols.includes('is_premium')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0;')
+  }
+  if (!userCols.includes('invoice_analysis_enabled')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN invoice_analysis_enabled INTEGER NOT NULL DEFAULT 0;')
+  }
+  if (!userCols.includes('is_admin')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;')
+  }
 
   const countRow = sqlite
     .prepare('SELECT COUNT(*) as cnt FROM categories WHERE user_id IS NULL')

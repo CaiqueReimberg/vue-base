@@ -135,11 +135,12 @@ export async function getPublicUsersMap(userIds: string[]): Promise<Map<string, 
 
 export async function getUserProfileResponse(userId: string) {
   const user = await getUserOrThrow(userId)
+  const hasPremiumAccess = Boolean(user.isPremium || user.isAdmin)
 
   let familyObj: { id: string; name: string } | null = null
   let partnerObj: { id: string; email: string; name: string | null } | null = null
 
-  if (user.familyId) {
+  if (hasPremiumAccess && user.familyId) {
     const [fam] = await db
       .select()
       .from(families)
@@ -168,6 +169,7 @@ export async function getUserProfileResponse(userId: string) {
     id: user.id,
     email: user.email,
     name: user.name ?? null,
+    isPremium: Boolean(user.isPremium),
     invoiceAnalysisEnabled: Boolean(user.invoiceAnalysisEnabled),
     isAdmin: Boolean(user.isAdmin),
     features,
@@ -176,6 +178,18 @@ export async function getUserProfileResponse(userId: string) {
     family: familyObj,
     partner: partnerObj,
   }
+}
+
+export async function assertPremiumUser(userId: string) {
+  const user = await getUserOrThrow(userId)
+  if (!user.isPremium && !user.isAdmin) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Recurso disponível apenas para usuários Premium.',
+      data: { message: 'Recurso disponível apenas para usuários Premium.' },
+    })
+  }
+  return user
 }
 
 export async function assertFeatureFlagEnabled(key: string, label = 'Este módulo') {

@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { createError, getHeader } from 'h3'
+import { createError, getCookie, getHeader } from 'h3'
 import jwt from 'jsonwebtoken'
 
 export type PublicUser = {
@@ -27,7 +27,13 @@ export function signJwt(payload: { sub: string; email: string }): string {
 
 export function requireAuthUser(event: H3Event): { userId: string; email: string } {
   const authHeader = getHeader(event, 'authorization') || getHeader(event, 'Authorization')
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const cookieToken = getCookie(event, 'auth_token')
+  const rawToken =
+    authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : cookieToken?.trim()
+
+  if (!rawToken) {
     throw createError({
       statusCode: 401,
       statusMessage: 'Não autorizado',
@@ -35,7 +41,7 @@ export function requireAuthUser(event: H3Event): { userId: string; email: string
     })
   }
 
-  const token = authHeader.slice(7).trim()
+  const token = rawToken
   const config = useRuntimeConfig()
   const secret = config.jwtSecret || process.env.JWT_SECRET || 'dualpact-super-secret-jwt-key-dev'
 

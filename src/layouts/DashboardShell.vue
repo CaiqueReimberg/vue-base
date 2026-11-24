@@ -22,6 +22,7 @@ import {
   PiggyBank,
   Scale,
   Sun,
+  UserCircle,
 } from 'lucide-vue-next'
 
 const config = useRuntimeConfig()
@@ -36,9 +37,12 @@ const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const toastStore = useToastStore()
 const { isDark, hideValues } = storeToRefs(themeStore)
-const { invoiceAnalysisEnabled, featureFlags } = storeToRefs(authStore)
+const { invoiceAnalysisEnabled, isPremium, featureFlags } = storeToRefs(authStore)
 
 const mobileBottomTabs = computed(() => {
+  if (!isPremium.value) {
+    return [{ to: '/profile', label: 'Meu Perfil', icon: UserCircle, exact: false }]
+  }
   const tabs: Array<{ to: string; label: string; icon: any; exact?: boolean }> = [
     { to: '/', label: 'Início', icon: LayoutDashboard, exact: true },
   ]
@@ -59,6 +63,10 @@ const mobileBottomTabs = computed(() => {
 
 function checkRouteModuleAccess(path: string) {
   if (!authStore.profileLoaded) return
+  if (!authStore.isPremium && path !== '/profile') {
+    router.replace('/profile')
+    return
+  }
   const flags = authStore.featureFlags
   if (path.startsWith('/cards') && flags.cards === false) {
     toastStore.error('O módulo de Cartões está bloqueado no momento.')
@@ -120,6 +128,10 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
     items.push({ label: 'Contas Fixas' })
   } else if (path.startsWith('/agenda')) {
     items.push({ label: 'Agenda de Vencimentos' })
+  } else if (path.startsWith('/history')) {
+    items.push({ label: 'Histórico' })
+  } else if (path.startsWith('/goals')) {
+    items.push({ label: 'Metas de Poupança' })
   } else if (path.startsWith('/cards')) {
     if (path === '/cards') {
       items.push({ label: 'Cartões' })
@@ -201,6 +213,7 @@ function handleGoBack() {
 
         <div class="flex items-center gap-1">
           <button
+            v-if="isPremium"
             type="button"
             class="mobile-bar__icon-btn"
             :aria-label="hideValues ? 'Mostrar valores' : 'Ocultar valores'"
@@ -225,7 +238,7 @@ function handleGoBack() {
 
       <!-- Top Bar com Botão Voltar + Breadcrumb + Olhinho em todas as páginas internas -->
       <div
-        v-if="!isHome"
+        v-if="!isHome && isPremium"
         class="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
       >
         <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-2.5 sm:px-6">

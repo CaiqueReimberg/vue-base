@@ -59,7 +59,12 @@ async function submitLogin() {
       return
     }
     authStore.setToken(token)
+    await authStore.fetchProfile()
     await nextTick()
+    if (!authStore.isPremium) {
+      await router.push('/profile')
+      return
+    }
     const redirect = (route.query.redirect as string) || '/'
     await router.push(redirect)
   } catch (e) {
@@ -105,7 +110,12 @@ async function submitRegister() {
       return
     }
     authStore.setToken(token)
+    await authStore.fetchProfile()
     await nextTick()
+    if (!authStore.isPremium) {
+      await router.push('/profile')
+      return
+    }
     const redirect = (route.query.redirect as string) || '/'
     await router.push(redirect)
   } catch (e) {

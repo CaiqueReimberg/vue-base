@@ -4,6 +4,7 @@ export interface UserProfile {
   id: string
   email: string
   name: string | null
+  isPremium: boolean
   invoiceAnalysisEnabled: boolean
   isAdmin: boolean
   features?: Record<string, boolean>
@@ -26,6 +27,7 @@ export interface AdminUserItem {
   email: string
   name: string | null
   hasPartner: boolean
+  isPremium: boolean
   invoiceAnalysisEnabled: boolean
   isAdmin: boolean
   createdAt: string
@@ -84,7 +86,7 @@ export const usersApi = {
 
   updateAdminUserFlags(
     userId: string,
-    payload: { invoiceAnalysisEnabled?: boolean; isAdmin?: boolean },
+    payload: { isPremium?: boolean; invoiceAnalysisEnabled?: boolean; isAdmin?: boolean },
   ): Promise<AdminUserItem> {
     return request<AdminUserItem>(`/admin/users/${userId}`, {
       method: 'PATCH',

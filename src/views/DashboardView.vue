@@ -57,7 +57,7 @@ const themeStore = useThemeStore()
 const toastStore = useToastStore()
 
 const { hideValues } = storeToRefs(themeStore)
-const { accounts: vaultAccounts } = storeToRefs(accountsStore)
+const { accounts: vaultAccounts, totalSavedBalance } = storeToRefs(accountsStore)
 
 const {
   loading,
@@ -466,53 +466,42 @@ async function handleRemovePending(item: DashboardPendingItem) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 space-y-6">
-    <!-- Cabeçalho: Mês + Botões que abrem Drawers sem sair da Home -->
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h1 class="text-xl font-bold tracking-tight text-foreground">
-          Planejamento de {{ periodLabel || 'Mês Atual' }}
-        </h1>
-        <p class="text-xs text-muted-foreground mt-0.5">
-          Defina quanto entra, quite as contas do mês, separe o que quer guardar e gaste o resto livremente.
-        </p>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <div class="inline-flex items-center rounded-lg border border-border bg-card p-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            class="h-8 w-8"
-            aria-label="Mês anterior"
-            @click="handlePrevMonth"
-          >
-            <ChevronLeft class="h-4 w-4" />
-          </Button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-foreground hover:text-primary transition-colors"
-            @click="handleCurrentMonth"
-          >
-            <Calendar class="h-3.5 w-3.5 text-muted-foreground" />
-            <span>{{ periodLabel || 'Hoje' }}</span>
-          </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="h-8 w-8"
-            aria-label="Próximo mês"
-            @click="handleNextMonth"
-          >
-            <ChevronRight class="h-4 w-4" />
-          </Button>
-        </div>
-
-        <Button variant="outline" size="default" class="gap-1.5" @click="openCheckinDrawer">
-          <Flag class="h-3.5 w-3.5 text-primary" />
-          <span>{{ endOfMonthLeftover != null ? 'Fechamento do mês' : 'Fim do mês: Quanto sobrou?' }}</span>
+  <div class="mx-auto max-w-5xl px-4 py-6 sm:px-6 space-y-5">
+    <!-- Cabeçalho Minimalista: Navegador de Mês integrado ao Título + Ação Única -->
+    <header class="flex items-center justify-between gap-2">
+      <div class="inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-2xs">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8 rounded-lg"
+          aria-label="Mês anterior"
+          @click="handlePrevMonth"
+        >
+          <ChevronLeft class="h-4 w-4" />
         </Button>
 
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-sm font-bold tracking-tight text-foreground hover:text-primary transition-colors"
+          title="Voltar para o mês atual"
+          @click="handleCurrentMonth"
+        >
+          <Calendar class="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span>{{ periodLabel || 'Hoje' }}</span>
+        </button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8 rounded-lg"
+          aria-label="Próximo mês"
+          @click="handleNextMonth"
+        >
+          <ChevronRight class="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div class="flex items-center gap-2">
         <Button
           variant="outline"
           size="icon"
@@ -524,9 +513,9 @@ async function handleRemovePending(item: DashboardPendingItem) {
           <Eye v-else class="h-4 w-4 text-muted-foreground" />
         </Button>
 
-        <Button size="default" class="gap-1.5" @click="openAddDrawer('recurring')">
+        <Button size="sm" class="h-9 gap-1.5 px-3.5" @click="openAddDrawer('recurring')">
           <Plus class="h-4 w-4" />
-          <span>Adicionar conta</span>
+          <span>Nova conta</span>
         </Button>
       </div>
     </header>
@@ -552,11 +541,11 @@ async function handleRemovePending(item: DashboardPendingItem) {
       </div>
 
       <CardContent class="p-3.5 sm:p-5">
-        <div v-if="loading && pendingItems.length === 0 && paidItems.length === 0" class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          <div v-for="n in 4" :key="n" class="flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4 space-y-2.5">
-            <Skeleton class="h-3.5 w-20 sm:w-24" />
-            <Skeleton class="h-6 sm:h-7 w-24 sm:w-32" />
-            <Skeleton class="h-3 w-28 sm:w-36" />
+        <div v-if="loading && pendingItems.length === 0 && paidItems.length === 0" class="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-4">
+          <div v-for="n in 4" :key="n" class="flex flex-col justify-between rounded-xl border border-border bg-background p-2.5 sm:p-4 space-y-1.5 sm:space-y-2.5">
+            <Skeleton class="h-3 w-16 sm:w-24" />
+            <Skeleton class="h-5 sm:h-7 w-20 sm:w-32" />
+            <Skeleton class="h-2.5 w-20 sm:w-36" />
           </div>
         </div>
 
@@ -665,6 +654,27 @@ async function handleRemovePending(item: DashboardPendingItem) {
           </div>
         </div>
       </CardContent>
+
+      <!-- Faixa discreta de Patrimônio Acumulado nos CDBs -->
+      <RouterLink
+        v-if="vaultAccounts.length > 0"
+        to="/accounts"
+        class="group flex items-center justify-between gap-3 border-t border-border/70 bg-emerald-500/5 px-4 py-2.5 text-xs transition-colors hover:bg-emerald-500/10 sm:px-5"
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <PiggyBank class="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span class="font-medium text-muted-foreground group-hover:text-foreground transition-colors truncate">
+            Patrimônio guardado ({{ vaultAccounts.length }} {{ vaultAccounts.length === 1 ? 'reserva' : 'CDBs/reservas' }})
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <strong class="font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+            {{ formatCurrency(totalSavedBalance) }}
+          </strong>
+          <ChevronRight class="h-3.5 w-3.5 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-emerald-600 transition-all" />
+        </div>
+      </RouterLink>
     </Card>
 
     <!-- Banner de Resumo quando o mês já foi conferido -->
@@ -706,11 +716,11 @@ async function handleRemovePending(item: DashboardPendingItem) {
       <CardContent class="p-4 space-y-3">
         <template v-if="loading && pendingItems.length === 0 && paidItems.length === 0">
           <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-4">
-              <Skeleton class="h-4 w-36" />
-              <Skeleton class="h-4 w-36" />
+            <div class="flex items-center gap-2 sm:gap-4">
+              <Skeleton class="h-3.5 w-20 sm:w-36" />
+              <Skeleton class="h-3.5 w-20 sm:w-36" />
             </div>
-            <Skeleton class="h-4 w-40" />
+            <Skeleton class="h-3.5 w-16 sm:w-40" />
           </div>
           <Skeleton class="h-2 w-full rounded-full" />
         </template>
@@ -817,17 +827,17 @@ async function handleRemovePending(item: DashboardPendingItem) {
             aria-label="Carregando contas pendentes"
           >
             <li
-              v-for="n in 4"
+              v-for="n in 3"
               :key="n"
-              class="flex items-center justify-between gap-3 px-5 py-3.5"
+              class="flex items-center justify-between gap-2 px-4 py-2.5 sm:px-5 sm:py-3.5"
             >
-              <div class="flex items-center gap-2.5">
-                <Skeleton class="h-4 w-32" />
-                <Skeleton class="h-4 w-16 rounded-full" />
+              <div class="flex items-center gap-2">
+                <Skeleton class="h-3.5 w-24 sm:w-32" />
+                <Skeleton class="h-3.5 w-12 rounded-full" />
               </div>
-              <div class="flex items-center gap-2.5">
-                <Skeleton class="h-4 w-20" />
-                <Skeleton class="h-7 w-16 rounded-md" />
+              <div class="flex items-center gap-2">
+                <Skeleton class="h-3.5 w-16 sm:w-20" />
+                <Skeleton class="h-6 w-12 sm:h-7 sm:w-16 rounded-md" />
               </div>
             </li>
           </ul>
@@ -959,20 +969,20 @@ async function handleRemovePending(item: DashboardPendingItem) {
             aria-label="Carregando contas pagas"
           >
             <li
-              v-for="n in 4"
+              v-for="n in 2"
               :key="n"
-              class="flex items-center justify-between gap-3 px-5 py-3.5"
+              class="flex items-center justify-between gap-2 px-4 py-2.5 sm:px-5 sm:py-3.5"
             >
-              <div class="flex items-center gap-2.5">
-                <Skeleton class="h-4 w-4 rounded-full" />
-                <div class="space-y-1.5">
-                  <Skeleton class="h-4 w-28" />
-                  <Skeleton class="h-3 w-20" />
+              <div class="flex items-center gap-2">
+                <Skeleton class="h-3.5 w-3.5 rounded-full" />
+                <div class="space-y-1">
+                  <Skeleton class="h-3.5 w-24 sm:w-28" />
+                  <Skeleton class="h-2.5 w-16 sm:w-20" />
                 </div>
               </div>
-              <div class="flex items-center gap-2.5">
-                <Skeleton class="h-4 w-20" />
-                <Skeleton class="h-7 w-7 rounded-md" />
+              <div class="flex items-center gap-2">
+                <Skeleton class="h-3.5 w-16 sm:w-20" />
+                <Skeleton class="h-6 w-6 rounded-md" />
               </div>
             </li>
           </ul>
@@ -994,14 +1004,23 @@ async function handleRemovePending(item: DashboardPendingItem) {
               v-for="item in filteredPaidItems"
               :key="item.id"
               class="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors"
+              :class="item.kind === 'savings' ? 'bg-primary/5' : ''"
             >
               <div class="flex min-w-0 items-center gap-2.5">
-                <CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <PiggyBank v-if="item.kind === 'savings'" class="h-4 w-4 shrink-0 text-primary" />
+                <CheckCircle2 v-else class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
                     <p class="truncate text-sm font-medium text-foreground">
                       {{ item.title }}
                     </p>
+                    <Badge
+                      v-if="item.kind === 'savings'"
+                      variant="outline"
+                      class="gap-1 text-[10px] px-1.5 py-0 font-normal border-primary/30 text-primary"
+                    >
+                      Guardado
+                    </Badge>
                     <Badge
                       v-if="item.isShared"
                       variant="outline"

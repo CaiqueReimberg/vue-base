@@ -123,12 +123,11 @@ function resolveMonthParts(ym?: string) {
   return { y, m, referenceMonth, now }
 }
 
+const SHORT_MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
 function formatPeriodLabel(y: number, month1to12: number): string {
-  const raw = new Date(y, month1to12 - 1, 1).toLocaleDateString('pt-BR', {
-    month: 'long',
-    year: 'numeric',
-  })
-  return raw.charAt(0).toUpperCase() + raw.slice(1)
+  const monthName = SHORT_MONTHS[(month1to12 || 1) - 1] || 'Mês'
+  return `${monthName} ${y}`
 }
 
 function getDebtMonthStatus(

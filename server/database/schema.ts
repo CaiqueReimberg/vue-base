@@ -20,5 +20,7 @@ export const recurringMonthOverrides = active.recurringMonthOverrides
 export const debtPayments = active.debtPayments
 export const transactions = active.transactions
 export const monthlyPlans = active.monthlyPlans
+export const savingsGoals = active.savingsGoals
+export const savingsContributions = active.savingsContributions
 export const invoiceAnalyses = active.invoiceAnalyses
 export const featureFlags = active.featureFlags

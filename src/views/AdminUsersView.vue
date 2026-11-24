@@ -16,6 +16,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Crown,
   FileSpreadsheet,
   Lock,
   Search,
@@ -121,6 +122,32 @@ function handleSearch() {
 function goToPage(nextPage: number) {
   if (nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
   fetchUsers(nextPage)
+}
+
+async function togglePremiumFlag(user: AdminUserItem) {
+  if (updatingUserId.value) return
+  updatingUserId.value = user.id
+  const nextVal = !user.isPremium
+  try {
+    const updated = await usersApi.updateAdminUserFlags(user.id, {
+      isPremium: nextVal,
+    })
+    usersList.value = usersList.value.map((u) => (u.id === updated.id ? updated : u))
+    if (updated.id === authStore.currentUserId) {
+      await authStore.fetchProfile()
+    }
+    toastStore.success(
+      nextVal
+        ? `Acesso Premium liberado para ${updated.email}`
+        : `Acesso Premium removido de ${updated.email} (restrito ao perfil)`,
+    )
+  } catch (err) {
+    toastStore.error(
+      err instanceof Error ? err.message : 'Erro ao atualizar status Premium do usuário.',
+    )
+  } finally {
+    updatingUserId.value = null
+  }
 }
 
 async function toggleInvoiceFeature(user: AdminUserItem) {
@@ -344,6 +371,21 @@ onMounted(async () => {
                 <Badge v-if="u.isAdmin" variant="default" class="text-[10px] px-1.5 py-0">
                   Admin
                 </Badge>
+                <Badge
+                  v-if="u.isPremium"
+                  variant="warning"
+                  class="gap-1 text-[10px] px-1.5 py-0"
+                >
+                  <Crown class="h-2.5 w-2.5" />
+                  Premium
+                </Badge>
+                <Badge
+                  v-else-if="!u.isAdmin"
+                  variant="outline"
+                  class="text-[10px] px-1.5 py-0 text-muted-foreground"
+                >
+                  Somente perfil
+                </Badge>
                 <Badge v-if="u.hasPartner" variant="secondary" class="text-[10px] px-1.5 py-0">
                   Em casal
                 </Badge>
@@ -356,6 +398,33 @@ onMounted(async () => {
 
             <!-- Botões de Toggle de Feature Flags -->
             <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <!-- Flag: Premium (acesso completo ao app vs somente perfil) -->
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+                :class="
+                  u.isPremium
+                    ? 'border-amber-500/45 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                "
+                :disabled="updatingUserId === u.id"
+                title="Controla quem pode usar os módulos financeiros (sem Premium o usuário só vê o próprio perfil)"
+                @click="togglePremiumFlag(u)"
+              >
+                <Crown class="h-3.5 w-3.5" />
+                <span>Premium</span>
+                <span
+                  class="flex h-4 w-4 items-center justify-center rounded-full"
+                  :class="
+                    u.isPremium
+                      ? 'bg-amber-500 text-white'
+                      : 'border border-muted-foreground/40'
+                  "
+                >
+                  <Check v-if="u.isPremium" class="h-2.5 w-2.5" />
+                </span>
+              </button>
+
               <!-- Feature Flag: Análise de Faturas -->
               <button
                 type="button"
