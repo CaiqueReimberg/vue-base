@@ -6,6 +6,7 @@ import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3'
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres'
 import pg from 'pg'
 import { DEFAULT_CATEGORIES, runPostgresMigrations } from './migrate'
+import { createPoolConfig } from './pool-config'
 import * as pgSchema from './schema.pg'
 import * as sqliteSchema from './schema.sqlite'
 
@@ -252,27 +253,8 @@ function createSqliteDb() {
 let dbInstance: ReturnType<typeof createSqliteDb>
 let pgPool: pg.Pool | null = null
 
-function cleanDatabaseUrl(raw: string): string {
-  return raw.trim().replace(/^["']|["']$/g, '')
-}
-
 if (process.env.DATABASE_URL) {
-  const connectionString = cleanDatabaseUrl(process.env.DATABASE_URL)
-  const isLocalHost = /@(localhost|127\.0\.0\.1)/.test(connectionString)
-  const isServerless = Boolean(process.env.VERCEL)
-
-  pgPool = new pg.Pool({
-    connectionString,
-    ssl: isLocalHost ? undefined : { rejectUnauthorized: false },
-    keepAlive: true,
-    keepAliveInitialDelayMillis: 10_000,
-    // Em serverless cada instância deve segurar poucas conexões e soltá-las rápido,
-    // evitando reaproveitar sockets que o proxy da Railway já derrubou.
-    max: isServerless ? 3 : 10,
-    idleTimeoutMillis: isServerless ? 5_000 : 30_000,
-    connectionTimeoutMillis: 15_000,
-    allowExitOnIdle: isServerless,
-  })
+  pgPool = new pg.Pool(createPoolConfig(process.env.DATABASE_URL))
 
   // Sem esse handler, um socket morto em cliente ocioso derruba o processo/requisição
   pgPool.on('error', (err) => {

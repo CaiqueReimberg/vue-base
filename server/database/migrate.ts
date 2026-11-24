@@ -396,6 +396,23 @@ export function runPostgresMigrations(pool: pg.Pool, schemaName: string): Promis
 
   migrationPromise = (async () => {
     const safeSchema = schemaName.replace(/[^a-zA-Z0-9_]/g, '') || 'dualpact'
+
+    // Caminho rápido: se todas as migrations já estão aplicadas, não abre transação
+    // nem executa DDL (reduz idas ao banco em cada cold start na Vercel).
+    try {
+      const quick = await pool.query<{ id: string }>(
+        `SELECT id FROM "${safeSchema}"._migrations`,
+      )
+      const done = new Set(quick.rows.map((r) => r.id))
+      if (MIGRATIONS.every((m) => done.has(m.id))) {
+        return
+      }
+    } catch (err) {
+      const code = (err as { code?: string })?.code
+      // 42P01 (tabela não existe) / 3F000 (schema não existe): segue para criar tudo
+      if (code !== '42P01' && code !== '3F000') throw err
+    }
+
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
