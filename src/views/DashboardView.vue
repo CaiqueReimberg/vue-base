@@ -13,6 +13,7 @@ import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Skeleton } from '@/components/ui/skeleton'
+import PremiumOnboarding from '@/components/dashboard/PremiumOnboarding.vue'
 import {
   useDashboardStore,
   type DashboardPaidItem,
@@ -228,11 +229,14 @@ watch(
   { immediate: true },
 )
 
+const initialSummaryLoaded = ref(false)
+
 onMounted(async () => {
   await Promise.all([
     dashboardStore.fetchSummary(),
     accountsStore.fetchAll(),
   ])
+  initialSummaryLoaded.value = true
   if (dashboardStore.error) {
     toastStore.error(dashboardStore.error)
   }
@@ -519,6 +523,16 @@ async function handleRemovePending(item: DashboardPendingItem) {
         </Button>
       </div>
     </header>
+
+    <!-- Tour de Boas Vindas (1º acesso Premium) + Checklist Interativo de Primeiros Passos -->
+    <PremiumOnboarding
+      :ready="initialSummaryLoaded"
+      :configured-income="configuredIncome"
+      :configured-savings="configuredSavings"
+      :total-bills-count="totalBillsCount"
+      @open-plan="openPlanDrawer"
+      @open-add-bill="openAddDrawer('recurring')"
+    />
 
     <!-- 1. A EQUAÇÃO DO MÊS (Renda − Contas − Guardar = Livre pra Gastar) -->
     <Card class="overflow-hidden border-primary/25 shadow-sm">

@@ -14,6 +14,7 @@ import {
   Lock,
   LogOut,
   Mail,
+  PlayCircle,
   ShieldCheck,
   User,
   Users,
@@ -352,13 +353,25 @@ function handleLogout() {
         </CardContent>
       </Card>
 
-      <!-- Rodapé rápido para sair da conta -->
-      <div class="flex justify-end pt-1">
+      <!-- Rodapé rápido para rever tour ou sair da conta -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <Button
+          v-if="hasPremiumAccess"
+          type="button"
+          variant="ghost"
+          size="sm"
+          class="gap-1.5 text-muted-foreground hover:text-primary"
+          @click="router.push('/?tour=1')"
+        >
+          <PlayCircle class="h-3.5 w-3.5" />
+          <span>Rever tour de boas vindas</span>
+        </Button>
+
         <Button
           type="button"
           variant="outline"
           size="sm"
-          class="gap-1.5 text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
+          class="ml-auto gap-1.5 text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
           @click="handleLogout"
         >
           <LogOut class="h-3.5 w-3.5" />
