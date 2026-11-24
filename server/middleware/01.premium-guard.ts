@@ -9,7 +9,6 @@ export default defineEventHandler(async (event) => {
   // Rotas públicas, próprio perfil e administração (que já valida assertAdminUser)
   if (
     pathname === '/api/health' ||
-    pathname.startsWith('/api/health/') ||
     pathname.startsWith('/api/auth/') ||
     pathname === '/api/users/me' ||
     pathname.startsWith('/api/admin/')
