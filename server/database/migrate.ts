@@ -409,7 +409,67 @@ const MIGRATIONS: MigrationStep[] = [
         ADD COLUMN IF NOT EXISTS paid_by_user_id TEXT REFERENCES "${s}".users(id) ON DELETE SET NULL;
     `,
   },
+  {
+    id: '0014_add_income_entries',
+    description: 'Adiciona tabela income_entries para ganhos fixos e variaveis com origem por mes',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".income_entries (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        source TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'freelance',
+        amount DOUBLE PRECISION NOT NULL,
+        reference_month TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
+        end_month TEXT,
+        notes TEXT,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        family_id TEXT REFERENCES "${s}".families(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_income_entries_user_month
+        ON "${s}".income_entries(user_id, reference_month);
+    `,
+  },
+  {
+    id: '0015_add_card_monthly_invoices',
+    description: 'Vincula faturas mensais e analises diretamente a cards com idempotencia por card_id e reference_month',
+    up: (s) => `
+      CREATE TABLE IF NOT EXISTS "${s}".card_monthly_invoices (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL REFERENCES "${s}".cards(id) ON DELETE CASCADE,
+        reference_month TEXT NOT NULL,
+        amount DOUBLE PRECISION NOT NULL,
+        due_day INTEGER,
+        is_shared BOOLEAN NOT NULL DEFAULT FALSE,
+        paid_at TEXT,
+        paid_by_user_id TEXT REFERENCES "${s}".users(id) ON DELETE SET NULL,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        family_id TEXT REFERENCES "${s}".families(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(card_id, reference_month)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_card_monthly_invoices_user_month
+        ON "${s}".card_monthly_invoices(user_id, reference_month);
+
+      ALTER TABLE "${s}".invoice_analyses
+        ADD COLUMN IF NOT EXISTS card_id TEXT REFERENCES "${s}".cards(id) ON DELETE SET NULL;
+
+      UPDATE "${s}".feature_flags
+        SET enabled = TRUE,
+            label = 'Cartões & Faturas',
+            description = 'Cadastro de cartões de crédito e lançamento mensal de faturas'
+        WHERE key = 'cards';
+    `,
+  },
 ]
+
+export const LAST_MIGRATION_ID = MIGRATIONS[MIGRATIONS.length - 1]?.id ?? ''
 
 let migrationPromise: Promise<void> | null = null
 

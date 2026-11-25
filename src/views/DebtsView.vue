@@ -71,16 +71,17 @@ const debts = ref<Transaction[]>([])
 
 const filterReferenceMonth = ref(currentReferenceMonth())
 const filterByReferenceMonth = ref(false)
-const scopeFilter = ref<'all' | 'shared' | 'individual'>('all')
+const scopeFilter = ref<'individual' | 'shared'>('individual')
 
 const filteredDebts = computed(() => {
   if (scopeFilter.value === 'shared') {
     return debts.value.filter((d) => Boolean(d.isShared))
   }
-  if (scopeFilter.value === 'individual') {
-    return debts.value.filter((d) => !d.isShared)
-  }
-  return debts.value
+  return debts.value.filter(
+    (d) =>
+      isMyResource(d.owner ?? null, currentUserId.value) ||
+      Boolean(currentUserId.value && d.paidBy?.id === currentUserId.value),
+  )
 })
 
 const sharedDebtsTotal = computed(() =>
@@ -679,7 +680,7 @@ async function confirmRemove() {
                 <span class="text-xs text-muted-foreground">/mês</span>
               </div>
               <span class="text-xs text-muted-foreground">
-                {{ debts.length }} {{ debts.length === 1 ? 'contrato ativo' : 'contratos ativos' }}
+                {{ filteredDebts.length }} {{ filteredDebts.length === 1 ? 'contrato ativo' : 'contratos ativos' }}
               </span>
             </div>
           </div>
@@ -693,20 +694,20 @@ async function confirmRemove() {
       </CardContent>
     </Card>
 
-    <!-- Filtro: Todas vs Com meu Par (Casal) vs Individuais -->
+    <!-- Filtro: Individual (padrão) vs Casal -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="inline-flex items-center rounded-xl border border-border bg-card p-1">
         <button
           type="button"
           class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
           :class="
-            scopeFilter === 'all'
+            scopeFilter === 'individual'
               ? 'bg-secondary text-foreground font-semibold shadow-2xs'
               : 'text-muted-foreground hover:text-foreground'
           "
-          @click="scopeFilter = 'all'"
+          @click="scopeFilter = 'individual'"
         >
-          Todas
+          Individual
         </button>
 
         <button
@@ -720,28 +721,14 @@ async function confirmRemove() {
           @click="scopeFilter = 'shared'"
         >
           <Users class="h-3.5 w-3.5 text-primary" />
-          <span>Com meu par (Casal)</span>
-        </button>
-
-        <button
-          type="button"
-          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-          :class="
-            scopeFilter === 'individual'
-              ? 'bg-secondary text-foreground font-semibold shadow-2xs'
-              : 'text-muted-foreground hover:text-foreground'
-          "
-          @click="scopeFilter = 'individual'"
-        >
-          Individuais
+          <span>Casal</span>
         </button>
       </div>
 
       <div v-if="sharedDebtsTotal > 0" class="flex items-center gap-2 text-xs text-muted-foreground">
         <Users class="h-3.5 w-3.5 text-primary" />
         <span>
-          Total com o par: <strong class="text-foreground">{{ formatCurrency(sharedDebtsTotal) }}/mês</strong>
-          ({{ formatCurrency(sharedDebtsTotal / 2) }} / 50% pra cada)
+          Total do casal: <strong class="tabular-nums text-foreground">{{ formatCurrency(sharedDebtsTotal) }}/mês</strong>
         </span>
       </div>
     </div>

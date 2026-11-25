@@ -50,6 +50,7 @@ export default defineEventHandler(async (event) => {
     }
     return {
       id: row.id,
+      cardId: row.cardId ?? null,
       cardName: row.cardName,
       referenceMonth: row.referenceMonth,
       totalAmount: Number(row.totalAmount),

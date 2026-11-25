@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { dashboardApi } from '@/api/dashboard.api'
 import { recurringApi } from '@/api/recurring.api'
+import { cardsApi } from '@/api/cards.api'
 import { transactionsApi } from '@/api/transactions.api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -267,6 +268,20 @@ async function submitPayDrawer(alsoPay = false) {
       } else {
         await recurringApi.setMonthAmount(ev.referenceId, referenceMonth.value, numAmount)
       }
+    } else if (ev.type === 'invoice_due') {
+      if (shouldMarkPaid) {
+        const res = await cardsApi.payMonthlyInvoice(ev.referenceId, {
+          referenceMonth: referenceMonth.value,
+          amount: numAmount,
+          paidByUserId: payerId,
+        })
+        ev.paidBy = res.paidBy ?? null
+      } else {
+        await cardsApi.upsertMonthlyInvoice(ev.referenceId, {
+          referenceMonth: referenceMonth.value,
+          amount: numAmount,
+        })
+      }
     } else if (ev.type === 'debt_due') {
       if (shouldMarkPaid) {
         const updated = await transactionsApi.update(ev.referenceId, {
@@ -306,8 +321,8 @@ async function toggleEventPaid(ev: AgendaEvent) {
   const key = eventKey(ev)
   if (togglingKey.value) return
 
-  if (ev.type === 'invoice_due' || ev.type === 'invoice_close') {
-    router.push('/invoices')
+  if (ev.type === 'invoice_close') {
+    router.push('/cards')
     return
   }
 
@@ -321,6 +336,8 @@ async function toggleEventPaid(ev: AgendaEvent) {
   try {
     if (ev.type === 'bill_due') {
       await recurringApi.unmarkAsPaid(ev.referenceId, referenceMonth.value)
+    } else if (ev.type === 'invoice_due') {
+      await cardsApi.unpayMonthlyInvoice(ev.referenceId, referenceMonth.value)
     } else if (ev.type === 'debt_due') {
       await transactionsApi.update(ev.referenceId, {
         status: 'pending',

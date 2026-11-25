@@ -2,7 +2,14 @@
  * Configuração de pool Postgres pensada para Vercel/serverless + Railway.
  * Espelha a configuração que já funciona no projeto Conlir.
  */
+import dns from 'node:dns'
 import type { PoolConfig } from 'pg'
+
+try {
+  dns.setDefaultResultOrder('ipv4first')
+} catch {
+  // ambientes restritos sem suporte a setDefaultResultOrder
+}
 
 export function isServerlessRuntime(): boolean {
   return Boolean(
@@ -45,8 +52,8 @@ export function isLocalDatabase(databaseUrl: string): boolean {
 export function resolvePoolMax(): number {
   const fromEnv = Number(process.env.PG_POOL_MAX)
   if (Number.isFinite(fromEnv) && fromEnv > 0) return Math.floor(fromEnv)
-  // Cada instância serverless segura só 1 conexão (evita estourar o proxy da Railway)
-  return isServerlessRuntime() ? 1 : 10
+  // Serverless usa 1 conexão; dev/node usa pool enxuto (3) para não saturar handshakes TLS no proxy da Railway
+  return isServerlessRuntime() ? 1 : 3
 }
 
 export function createPoolConfig(rawUrl: string): PoolConfig {
@@ -59,7 +66,7 @@ export function createPoolConfig(rawUrl: string): PoolConfig {
     ssl: local && process.env.PG_SSL !== '1' ? undefined : { rejectUnauthorized: false },
     max: resolvePoolMax(),
     idleTimeoutMillis: serverless ? 5_000 : 30_000,
-    connectionTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 20_000,
     allowExitOnIdle: serverless,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,

@@ -7,6 +7,7 @@ export interface RecurringBillCommitmentItem {
   dueDay: number | null
   paid: boolean
   paidAt?: string | null
+  paidByUserId?: string | null
   paidBy?: PublicOwner | null
   owner?: PublicOwner | null
   ownerId?: string
@@ -15,12 +16,20 @@ export interface RecurringBillCommitmentItem {
 }
 
 export interface CardInvoiceCommitmentItem {
+  invoiceId?: string | null
   cardId: string
   name: string
   invoiceValue: number
   closingDay: number
   dueDay: number
   paid: boolean
+  paidAt?: string | null
+  paidByUserId?: string | null
+  paidBy?: PublicOwner | null
+  owner?: PublicOwner | null
+  ownerId?: string
+  isShared?: boolean
+  analysisId?: string | null
 }
 
 export interface PartnerMonthlyOverview {

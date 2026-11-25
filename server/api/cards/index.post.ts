@@ -1,17 +1,9 @@
-import { randomUUID } from 'node:crypto'
 import { readBody } from 'h3'
-import { db } from '../../database'
-import { cards } from '../../database/schema'
-import { badRequest, requireAuthUser } from '../../utils/auth'
-import {
-  assertFeatureFlagEnabled,
-  assertUserBelongsToFamily,
-  getPublicUsersMap,
-} from '../../utils/household'
+import { requireAuthUser } from '../../utils/auth'
+import { findOrCreateUserCard } from '../../utils/card-invoices'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
-  await assertFeatureFlagEnabled('cards', 'O módulo de Cartões')
   const body = await readBody<{
     name?: string
     limitAmount?: number
@@ -20,42 +12,17 @@ export default defineEventHandler(async (event) => {
     bankName?: string | null
     brand?: string | null
     last4?: string | null
-    isActive?: boolean
     shareWithPartner?: boolean
-    familyId?: string | null
   }>(event)
 
-  if (!body?.name?.trim() || body.limitAmount === undefined || !body.closingDay || !body.dueDay) {
-    badRequest('Informe nome, limite, dia de fechamento e dia de vencimento do cartão')
-  }
-
-  if (body.familyId) {
-    await assertUserBelongsToFamily(userId, body.familyId)
-  }
-
-  const now = new Date().toISOString()
-  const id = randomUUID()
-  const newCard: typeof cards.$inferInsert = {
-    id,
-    name: body.name.trim(),
-    limitAmount: Number(body.limitAmount),
-    closingDay: Number(body.closingDay),
-    dueDay: Number(body.dueDay),
-    bankName: body.bankName ?? null,
-    brand: body.brand ?? null,
-    last4: body.last4 ?? null,
-    isActive: body.isActive ?? true,
-    shareWithPartner: body.shareWithPartner ?? false,
-    userId,
-    familyId: body.familyId ?? null,
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  await db.insert(cards).values(newCard)
-  const usersMap = await getPublicUsersMap([userId])
-  return {
-    ...newCard,
-    owner: usersMap.get(userId) ?? null,
-  }
+  return findOrCreateUserCard(userId, {
+    name: body?.name || '',
+    limitAmount: body?.limitAmount,
+    closingDay: body?.closingDay,
+    dueDay: body?.dueDay,
+    bankName: body?.bankName,
+    brand: body?.brand,
+    last4: body?.last4,
+    shareWithPartner: body?.shareWithPartner,
+  })
 })

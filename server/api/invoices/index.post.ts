@@ -2,19 +2,19 @@ import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { readBody } from 'h3'
 import { db } from '../../database'
-import { invoiceAnalyses, recurringPayments, recurrings } from '../../database/schema'
-import { badRequest, requireAuthUser } from '../../utils/auth'
+import { cards, invoiceAnalyses } from '../../database/schema'
+import { badRequest, notFound, requireAuthUser } from '../../utils/auth'
 import { roundMoney } from '../../utils/billing'
 import {
-  resolveInvoiceCardKey,
-  resolveRecurringCardKey,
-} from '../../utils/card-invoice-key'
+  findOrCreateUserCard,
+  upsertCardMonthlyInvoice,
+} from '../../utils/card-invoices'
+import { resolveInvoiceCardKey } from '../../utils/card-invoice-key'
 import {
   assertInvoiceAnalysisEnabled,
   getHouseholdVisibility,
   getUserOrThrow,
 } from '../../utils/household'
-import { setRecurringMonthAmount } from '../../utils/recurring'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
@@ -22,6 +22,7 @@ export default defineEventHandler(async (event) => {
   const user = await getUserOrThrow(userId)
 
   const body = await readBody<{
+    cardId?: string
     cardName?: string
     referenceMonth?: string
     items?: Array<{
@@ -38,18 +39,42 @@ export default defineEventHandler(async (event) => {
     dueDay?: number
   }>(event)
 
-  const cardName = (body?.cardName || '').trim()
   const referenceMonth = (body?.referenceMonth || '').trim()
   const items = Array.isArray(body?.items) ? body.items : []
 
-  if (!cardName) {
-    badRequest('Informe o nome do cartão/fatura')
-  }
   if (!/^\d{4}-\d{2}$/.test(referenceMonth)) {
     badRequest('Informe referenceMonth no formato YYYY-MM')
   }
   if (items.length === 0) {
     badRequest('A fatura precisa ter pelo menos 1 item')
+  }
+
+  const isShared = Boolean(body?.isShared)
+
+  // 1. Resolve ou cria o Cartão do usuário (idempotente por pessoa)
+  let card: typeof cards.$inferSelect
+  if (body?.cardId?.trim()) {
+    const [found] = await db
+      .select()
+      .from(cards)
+      .where(and(eq(cards.id, body.cardId.trim()), eq(cards.userId, userId)))
+      .limit(1)
+    if (!found) {
+      notFound('Cartão selecionado não encontrado.')
+    }
+    card = found
+  } else {
+    const rawName = (body?.cardName || '').trim()
+    if (!rawName) {
+      badRequest('Selecione ou informe o cartão da fatura.')
+    }
+    const resolved = await findOrCreateUserCard(userId, {
+      name: rawName,
+      dueDay: body?.dueDay,
+      shareWithPartner: isShared,
+    })
+    const [found] = await db.select().from(cards).where(eq(cards.id, resolved.id)).limit(1)
+    card = found
   }
 
   const totalAmount = roundMoney(
@@ -58,10 +83,9 @@ export default defineEventHandler(async (event) => {
 
   const visibility = await getHouseholdVisibility(userId)
   const now = new Date().toISOString()
-  const isShared = body?.isShared !== false
-  const targetCardKey = resolveInvoiceCardKey(cardName, user.name)
+  const targetCardKey = resolveInvoiceCardKey(card.name, user.name)
 
-  // 1. Idempotência em invoice_analyses: 1 análise por cartão + mês para a mesma pessoa (userId)
+  // 2. Idempotência em invoice_analyses: 1 análise por card_id + reference_month
   const existingMonthAnalyses = await db
     .select()
     .from(invoiceAnalyses)
@@ -73,7 +97,9 @@ export default defineEventHandler(async (event) => {
     )
 
   const existingAnalysis = existingMonthAnalyses.find(
-    (row) => resolveInvoiceCardKey(row.cardName, user.name) === targetCardKey,
+    (row) =>
+      row.cardId === card.id ||
+      resolveInvoiceCardKey(row.cardName, user.name) === targetCardKey,
   )
 
   let savedAnalysisId: string
@@ -85,7 +111,8 @@ export default defineEventHandler(async (event) => {
     await db
       .update(invoiceAnalyses)
       .set({
-        cardName,
+        cardId: card.id,
+        cardName: card.name,
         totalAmount,
         itemsCount: items.length,
         itemsJson: JSON.stringify(items),
@@ -98,7 +125,8 @@ export default defineEventHandler(async (event) => {
     savedAnalysisId = randomUUID()
     await db.insert(invoiceAnalyses).values({
       id: savedAnalysisId,
-      cardName,
+      cardId: card.id,
+      cardName: card.name,
       referenceMonth,
       totalAmount,
       itemsCount: items.length,
@@ -111,85 +139,24 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // 2. Idempotência nas Contas do Mês (recurrings): 1 fatura daquele cartão por pessoa (userId)
+  // 3. Idempotência real na Fatura do Mês (card_monthly_invoices: UNIQUE(card_id, reference_month))
   let syncedBillStatus: 'created' | 'updated' | 'already_paid' | 'none' = 'none'
-  let syncedBillName: string | null = null
+  const syncedBillName = `Fatura ${card.name}`
 
-  if (body?.syncToMonthlyBill && totalAmount > 0) {
-    const normalizedBillName = /^(fatura|cart[aã]o)\b/i.test(cardName)
-      ? cardName
-      : `Fatura ${cardName}`
-
-    // Busca estritamente nas recorrências DESTA pessoa (userId), garantindo 1 fatura por cartão por pessoa
-    const userRecurrings = await db
-      .select()
-      .from(recurrings)
-      .where(
-        and(
-          eq(recurrings.userId, userId),
-          eq(recurrings.isActive, true),
-        ),
-      )
-
-    const matched = userRecurrings.find(
-      (r) => resolveRecurringCardKey(r.name, user.name) === targetCardKey,
-    )
-
-    if (matched) {
-      syncedBillName = matched.name
-      const targetMonthStart = `${referenceMonth}-01`
-      if (matched.startDate > targetMonthStart) {
-        await db
-          .update(recurrings)
-          .set({ startDate: targetMonthStart, updatedAt: now })
-          .where(eq(recurrings.id, matched.id))
-      }
-
-      const [existingPayment] = await db
-        .select({ id: recurringPayments.id })
-        .from(recurringPayments)
-        .where(
-          and(
-            eq(recurringPayments.recurringId, matched.id),
-            eq(recurringPayments.referenceMonth, referenceMonth),
-          ),
-        )
-        .limit(1)
-
-      if (existingPayment) {
-        // Se a pessoa já deu baixa confirmando o valor pago no mês, não cria outra nem sobrescreve o recibo
-        syncedBillStatus = 'already_paid'
-      } else {
-        await setRecurringMonthAmount(userId, matched.id, referenceMonth, totalAmount)
-        syncedBillStatus = 'updated'
-      }
-    } else {
-      const newRecurringId = randomUUID()
-      syncedBillName = normalizedBillName
-      await db.insert(recurrings).values({
-        id: newRecurringId,
-        name: normalizedBillName,
-        kind: 'fixed_bill',
-        transactionType: 'expense',
-        frequency: 'monthly',
-        amount: totalAmount,
-        dueDay: body?.dueDay && body.dueDay >= 1 && body.dueDay <= 31 ? Number(body.dueDay) : 10,
-        startDate: `${referenceMonth}-01`,
-        isActive: true,
-        isShared,
-        userId,
-        familyId: visibility.familyId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      await setRecurringMonthAmount(userId, newRecurringId, referenceMonth, totalAmount)
-      syncedBillStatus = 'created'
-    }
+  if (body?.syncToMonthlyBill !== false && totalAmount > 0) {
+    const syncRes = await upsertCardMonthlyInvoice(userId, card.id, {
+      referenceMonth,
+      amount: totalAmount,
+      dueDay: body?.dueDay ?? card.dueDay,
+      isShared,
+    })
+    syncedBillStatus = syncRes.status
   }
 
   return {
     id: savedAnalysisId,
-    cardName,
+    cardId: card.id,
+    cardName: card.name,
     referenceMonth,
     totalAmount,
     itemsCount: items.length,

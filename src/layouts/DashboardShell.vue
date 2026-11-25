@@ -120,7 +120,9 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
 
   const items: BreadcrumbItem[] = [{ label: 'Início (Mês)', to: '/' }]
 
-  if (path.startsWith('/debts')) {
+  if (path.startsWith('/incomes')) {
+    items.push({ label: 'Entradas do Mês' })
+  } else if (path.startsWith('/debts')) {
     items.push({ label: 'Financiamentos & Parcelas' })
   } else if (path.startsWith('/invoices')) {
     items.push({ label: 'Análise de Faturas' })

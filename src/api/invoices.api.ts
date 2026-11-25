@@ -13,6 +13,7 @@ export interface ParsedInvoiceItem {
 
 export interface SavedInvoiceAnalysis {
   id: string
+  cardId?: string | null
   cardName: string
   referenceMonth: string
   totalAmount: number
@@ -33,6 +34,7 @@ export const invoicesApi = {
   },
 
   create(payload: {
+    cardId?: string
     cardName: string
     referenceMonth: string
     items: ParsedInvoiceItem[]

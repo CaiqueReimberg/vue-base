@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { accountsApi } from '@/api/accounts.api'
 import { budgetsApi } from '@/api/budgets.api'
+import { cardsApi } from '@/api/cards.api'
 import { transactionsApi } from '@/api/transactions.api'
 import { recurringApi } from '@/api/recurring.api'
 import type { MonthlyCommitmentResponse } from '@/types/dashboard-commitment'
@@ -396,14 +397,15 @@ export const useDashboardStore = defineStore('dashboard', {
           referenceId: c.cardId,
           kind: 'invoice',
           title: `Fatura ${c.name}`,
-          subtitle: `Cartão de crédito · Fecha dia ${c.closingDay}`,
+          subtitle: `Cartão de crédito · Vence dia ${c.dueDay}`,
           amount: c.invoiceValue,
           dueDay: c.dueDay,
           status: urgency.status,
           statusLabel: urgency.label,
-          canMarkPaid: false,
-          isShared: true,
-          linkTo: `/cards/${c.cardId}/faturas`,
+          canMarkPaid: true,
+          isShared: Boolean(c.isShared),
+          owner: c.owner ?? null,
+          linkTo: c.analysisId ? '/invoices' : '/cards',
         })
       }
 
@@ -495,6 +497,9 @@ export const useDashboardStore = defineStore('dashboard', {
       const cardItems = state.commitment?.breakdown.cardInvoices.items ?? []
       for (const c of cardItems) {
         if (!c.paid) continue
+        const paidLabel = c.paidAt
+          ? `Pago em ${new Date(c.paidAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}`
+          : 'Fatura quitada'
         items.push({
           id: `card-paid-${c.cardId}`,
           referenceId: c.cardId,
@@ -502,9 +507,11 @@ export const useDashboardStore = defineStore('dashboard', {
           title: `Fatura ${c.name}`,
           subtitle: 'Cartão de crédito',
           amount: c.invoiceValue,
-          paidDateLabel: 'Fatura quitada',
-          canUnmarkPaid: false,
-          isShared: true,
+          paidDateLabel: paidLabel,
+          paidBy: c.paidBy ?? null,
+          canUnmarkPaid: true,
+          isShared: Boolean(c.isShared),
+          owner: c.owner ?? null,
         })
       }
 
@@ -750,6 +757,12 @@ export const useDashboardStore = defineStore('dashboard', {
             finalAmount,
             paidByUserId,
           )
+        } else if (item.kind === 'invoice') {
+          await cardsApi.payMonthlyInvoice(item.referenceId, {
+            referenceMonth: this.referenceMonth,
+            amount: finalAmount,
+            paidByUserId,
+          })
         } else if (item.kind === 'transaction') {
           await transactionsApi.update(item.referenceId, {
             status: 'cleared',
@@ -778,6 +791,11 @@ export const useDashboardStore = defineStore('dashboard', {
         }
         if (item.kind === 'recurring') {
           await recurringApi.setMonthAmount(item.referenceId, this.referenceMonth, amount)
+        } else if (item.kind === 'invoice') {
+          await cardsApi.upsertMonthlyInvoice(item.referenceId, {
+            referenceMonth: this.referenceMonth,
+            amount,
+          })
         } else if (item.kind === 'transaction') {
           await transactionsApi.update(item.referenceId, { amount })
         }
@@ -797,6 +815,8 @@ export const useDashboardStore = defineStore('dashboard', {
         }
         if (item.kind === 'recurring') {
           await recurringApi.unmarkAsPaid(item.referenceId, this.referenceMonth)
+        } else if (item.kind === 'invoice') {
+          await cardsApi.unpayMonthlyInvoice(item.referenceId, this.referenceMonth)
         } else if (item.kind === 'transaction') {
           await transactionsApi.update(item.referenceId, {
             status: 'pending',
@@ -820,6 +840,8 @@ export const useDashboardStore = defineStore('dashboard', {
         }
         if (item.kind === 'recurring') {
           await recurringApi.delete(item.referenceId)
+        } else if (item.kind === 'invoice') {
+          await cardsApi.deleteMonthlyInvoice(item.referenceId, this.referenceMonth)
         } else if (item.kind === 'transaction') {
           await transactionsApi.delete(item.referenceId)
         }

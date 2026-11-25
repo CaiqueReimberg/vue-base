@@ -22,6 +22,7 @@ import {
   Scale,
   ShieldCheck,
   Sun,
+  TrendingUp,
   UserCircle,
 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
@@ -48,27 +49,73 @@ onMounted(() => {
   }
 })
 
-const allNavItems = [
-  { to: '/', label: 'Início (Mês)', icon: LayoutDashboard, exact: true, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/accounts', label: 'Dinheiro Guardado (CDBs)', icon: PiggyBank, exact: false, moduleKey: 'accounts', requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/invoices', label: 'Análise de Faturas', icon: FileSpreadsheet, exact: false, moduleKey: 'invoices', requireInvoiceFlag: true, requireAdmin: false },
-  { to: '/monthly-control', label: 'Contas Fixas', icon: ClipboardCheck, exact: false, moduleKey: 'monthly_control', requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/debts', label: 'Dívidas & Parcelas', icon: Scale, exact: false, moduleKey: 'debts', requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/cards', label: 'Cartões', icon: CreditCard, exact: false, moduleKey: 'cards', requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false, moduleKey: 'agenda', requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/history', label: 'Histórico', icon: BarChart3, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/goals', label: 'Metas de Poupança', icon: Target, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
-  { to: '/admin/users', label: 'Usuários & Features', icon: ShieldCheck, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: true },
-] as const
+interface NavItem {
+  to: string
+  label: string
+  icon: any
+  exact: boolean
+  moduleKey: string | null
+  requireInvoiceFlag: boolean
+  requireAdmin: boolean
+}
 
-const navItems = computed(() =>
-  allNavItems.filter((item) => {
-    if (item.requireAdmin) return isAdmin.value
-    if (!isPremium.value) return false
-    if (item.moduleKey && featureFlags.value[item.moduleKey] === false) return false
-    if (item.requireInvoiceFlag && !invoiceAnalysisEnabled.value) return false
-    return true
-  }),
+interface NavGroup {
+  id: string
+  title: string
+  items: NavItem[]
+}
+
+const rawNavGroups: NavGroup[] = [
+  {
+    id: 'month',
+    title: 'Visão do Mês',
+    items: [
+      { to: '/', label: 'Início (Mês)', icon: LayoutDashboard, exact: true, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/incomes', label: 'Entradas do Mês', icon: TrendingUp, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false, moduleKey: 'agenda', requireInvoiceFlag: false, requireAdmin: false },
+    ],
+  },
+  {
+    id: 'commitments',
+    title: 'Compromissos',
+    items: [
+      { to: '/monthly-control', label: 'Contas Fixas', icon: ClipboardCheck, exact: false, moduleKey: 'monthly_control', requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/debts', label: 'Dívidas & Parcelas', icon: Scale, exact: false, moduleKey: 'debts', requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/invoices', label: 'Análise de Faturas', icon: FileSpreadsheet, exact: false, moduleKey: 'invoices', requireInvoiceFlag: true, requireAdmin: false },
+      { to: '/cards', label: 'Cartões', icon: CreditCard, exact: false, moduleKey: 'cards', requireInvoiceFlag: false, requireAdmin: false },
+    ],
+  },
+  {
+    id: 'wealth',
+    title: 'Patrimônio & Evolução',
+    items: [
+      { to: '/accounts', label: 'Dinheiro Guardado (CDBs)', icon: PiggyBank, exact: false, moduleKey: 'accounts', requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/goals', label: 'Metas de Poupança', icon: Target, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/history', label: 'Histórico', icon: BarChart3, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
+    ],
+  },
+  {
+    id: 'admin',
+    title: 'Administração',
+    items: [
+      { to: '/admin/users', label: 'Usuários & Features', icon: ShieldCheck, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: true },
+    ],
+  },
+]
+
+const navGroups = computed(() =>
+  rawNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (item.requireAdmin) return isAdmin.value
+        if (!isPremium.value) return false
+        if (item.moduleKey && featureFlags.value[item.moduleKey] === false) return false
+        if (item.requireInvoiceFlag && !invoiceAnalysisEnabled.value) return false
+        return true
+      }),
+    }))
+    .filter((group) => group.items.length > 0),
 )
 
 function toggleTheme() {
@@ -95,9 +142,9 @@ function logout() {
     aria-label="Menu principal"
   >
     <div class="flex h-full flex-col justify-between p-3">
-      <!-- Brand -->
-      <div class="space-y-4">
-        <div class="flex h-10 items-center gap-2.5 px-2">
+      <!-- Brand + Grouped Navigation -->
+      <div class="flex min-h-0 flex-1 flex-col gap-4">
+        <div class="flex h-10 shrink-0 items-center gap-2.5 px-2">
           <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
             <HeartHandshake class="h-4 w-4" />
           </div>
@@ -107,34 +154,53 @@ function logout() {
           </div>
         </div>
 
-        <!-- Navigation -->
-        <nav class="space-y-1" aria-label="Navegação">
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.to"
-            v-slot="{ href, navigate, isActive, isExactActive }"
-            :to="item.to"
-            custom
+        <!-- Navigation por Categorias -->
+        <nav class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-0.5" aria-label="Navegação">
+          <div
+            v-for="(group, groupIdx) in navGroups"
+            :key="group.id"
+            class="space-y-1"
           >
-            <a
-              :href="href"
-              class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors"
-              :class="
-                (item.exact ? isExactActive : isActive)
-                  ? 'bg-secondary text-foreground font-semibold shadow-2xs'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-              "
-              @click.prevent="navigate()"
+            <div
+              v-if="mobileOpen || !collapsed"
+              class="px-2.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/75 select-none"
             >
-              <component
-                :is="item.icon"
-                class="h-4 w-4 shrink-0"
-                :class="(item.exact ? isExactActive : isActive) ? 'text-primary' : ''"
-                aria-hidden="true"
-              />
-              <span v-show="mobileOpen || !collapsed" class="truncate">{{ item.label }}</span>
-            </a>
-          </RouterLink>
+              {{ group.title }}
+            </div>
+            <div
+              v-else-if="groupIdx > 0"
+              class="mx-2 my-1.5 border-t border-border/60"
+              aria-hidden="true"
+            />
+
+            <RouterLink
+              v-for="item in group.items"
+              :key="item.to"
+              v-slot="{ href, navigate, isActive, isExactActive }"
+              :to="item.to"
+              custom
+            >
+              <a
+                :href="href"
+                :title="collapsed && !mobileOpen ? item.label : undefined"
+                class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors"
+                :class="
+                  (item.exact ? isExactActive : isActive)
+                    ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                "
+                @click.prevent="navigate()"
+              >
+                <component
+                  :is="item.icon"
+                  class="h-4 w-4 shrink-0"
+                  :class="(item.exact ? isExactActive : isActive) ? 'text-primary' : ''"
+                  aria-hidden="true"
+                />
+                <span v-show="mobileOpen || !collapsed" class="truncate">{{ item.label }}</span>
+              </a>
+            </RouterLink>
+          </div>
         </nav>
       </div>
 

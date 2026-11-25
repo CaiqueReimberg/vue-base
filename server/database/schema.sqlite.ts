@@ -234,12 +234,51 @@ export const savingsContributions = sqliteTable('savings_contributions', {
 
 export const invoiceAnalyses = sqliteTable('invoice_analyses', {
   id: text('id').primaryKey(),
+  cardId: text('card_id').references(() => cards.id, { onDelete: 'set null' }),
   cardName: text('card_name').notNull(),
   referenceMonth: text('reference_month').notNull(),
   totalAmount: real('total_amount').notNull().default(0),
   itemsCount: integer('items_count').notNull().default(0),
   itemsJson: text('items_json').notNull(),
-  isShared: integer('is_shared', { mode: 'boolean' }).notNull().default(true),
+  isShared: integer('is_shared', { mode: 'boolean' }).notNull().default(false),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const cardMonthlyInvoices = sqliteTable('card_monthly_invoices', {
+  id: text('id').primaryKey(),
+  cardId: text('card_id')
+    .notNull()
+    .references(() => cards.id, { onDelete: 'cascade' }),
+  referenceMonth: text('reference_month').notNull(),
+  amount: real('amount').notNull(),
+  dueDay: integer('due_day'),
+  isShared: integer('is_shared', { mode: 'boolean' }).notNull().default(false),
+  paidAt: text('paid_at'),
+  paidByUserId: text('paid_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const incomeEntries = sqliteTable('income_entries', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  source: text('source').notNull(),
+  category: text('category').notNull().default('freelance'),
+  amount: real('amount').notNull(),
+  referenceMonth: text('reference_month').notNull(),
+  receivedAt: text('received_at').notNull(),
+  isRecurring: integer('is_recurring', { mode: 'boolean' }).notNull().default(false),
+  endMonth: text('end_month'),
+  notes: text('notes'),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),

@@ -9,11 +9,14 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cardsApi } from '@/api/cards.api'
 import {
   invoicesApi,
   type ParsedInvoiceItem,
   type SavedInvoiceAnalysis,
 } from '@/api/invoices.api'
+import type { Card as CreditCardItem } from '@/types/card'
+import { isMyResource } from '@/utils/owner'
 import {
   INVOICE_CATEGORIES,
   parseInvoiceText,
@@ -56,6 +59,8 @@ const selectedInvoiceId = ref<string | null>(null)
 
 // Estado do Importador / Destrinchador (no Drawer ou tela inicial)
 const importDrawerOpen = ref(false)
+const myCards = ref<CreditCardItem[]>([])
+const selectedCardId = ref<string>('new')
 const cardName = ref('Nubank')
 const referenceMonth = ref(currentReferenceMonth())
 const dueDay = ref<number>(10)
@@ -253,6 +258,33 @@ async function fetchInvoices() {
   }
 }
 
+async function loadUserCards() {
+  try {
+    const all = await cardsApi.list(referenceMonth.value)
+    myCards.value = all.filter((c) => isMyResource(c.owner ?? null, authStore.currentUserId))
+    if (myCards.value.length > 0 && selectedCardId.value === 'new') {
+      selectCardForAnalysis(myCards.value[0].id)
+    }
+  } catch {
+    // silencioso
+  }
+}
+
+function selectCardForAnalysis(id: string) {
+  selectedCardId.value = id
+  if (id === 'new') {
+    cardName.value = ''
+    dueDay.value = 10
+    isShared.value = false
+    return
+  }
+  const card = myCards.value.find((c) => c.id === id)
+  if (!card) return
+  cardName.value = card.name
+  dueDay.value = card.dueDay
+  isShared.value = Boolean(card.shareWithPartner)
+}
+
 onMounted(async () => {
   if (!authStore.profileLoaded) {
     await authStore.fetchProfile()
@@ -262,13 +294,14 @@ onMounted(async () => {
     router.replace('/')
     return
   }
-  fetchInvoices()
+  await Promise.all([fetchInvoices(), loadUserCards()])
 })
 
 function openImportDrawer() {
   rawInvoiceText.value = ''
   previewItems.value = []
   importDrawerOpen.value = true
+  loadUserCards()
 }
 
 function handleTextChange() {
@@ -406,7 +439,7 @@ const previewTotal = computed(() =>
 )
 
 async function handleSaveInvoice() {
-  if (!cardName.value.trim()) {
+  if (selectedCardId.value === 'new' && !cardName.value.trim()) {
     toastStore.error('Informe o nome do cartão.')
     return
   }
@@ -418,6 +451,7 @@ async function handleSaveInvoice() {
   saving.value = true
   try {
     const created = await invoicesApi.create({
+      ...(selectedCardId.value !== 'new' ? { cardId: selectedCardId.value } : {}),
       cardName: cardName.value.trim(),
       referenceMonth: referenceMonth.value,
       items: previewItems.value,
@@ -907,17 +941,60 @@ async function confirmRemove() {
       description="Envie o arquivo OFX ou CSV exportado do banco ou cole as linhas de compras da sua fatura."
     >
       <form class="space-y-5" @submit.prevent="handleSaveInvoice">
-        <!-- Escolha rápida do cartão -->
+        <!-- Escolha do cartão cadastrado ou novo cartão -->
         <div class="space-y-2">
-          <label class="text-xs font-medium text-foreground">
-            Qual é o cartão?
-          </label>
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-xs font-medium text-foreground">
+              Selecione o cartão da fatura
+            </label>
+            <RouterLink
+              to="/cards"
+              class="text-[11px] font-medium text-primary hover:underline"
+              @click="importDrawerOpen = false"
+            >
+              Gerenciar cartões
+            </RouterLink>
+          </div>
+
           <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="card in myCards"
+              :key="card.id"
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all"
+              :class="
+                selectedCardId === card.id
+                  ? 'border-primary bg-primary/10 text-primary font-semibold'
+                  : 'border-border bg-background text-foreground hover:border-primary/40'
+              "
+              @click="selectCardForAnalysis(card.id)"
+            >
+              <CreditCard class="h-3.5 w-3.5 shrink-0" />
+              <span>{{ card.name }}</span>
+              <span class="text-[10px] text-muted-foreground">dia {{ card.dueDay }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all"
+              :class="
+                selectedCardId === 'new'
+                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold'
+                  : 'border-dashed border-border bg-muted/30 text-muted-foreground hover:text-foreground'
+              "
+              @click="selectCardForAnalysis('new')"
+            >
+              <Plus class="h-3.5 w-3.5" />
+              <span>Novo cartão</span>
+            </button>
+          </div>
+
+          <div v-if="selectedCardId === 'new'" class="flex flex-wrap gap-1.5 pt-1">
             <button
               v-for="preset in CARD_PRESETS"
               :key="preset"
               type="button"
-              class="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
+              class="rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors"
               :class="
                 cardName === preset
                   ? 'border-primary bg-primary/10 text-primary font-semibold'
@@ -930,8 +1007,8 @@ async function confirmRemove() {
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
-          <div class="space-y-1.5">
+        <div class="grid gap-3" :class="selectedCardId === 'new' ? 'grid-cols-3' : 'grid-cols-2'">
+          <div v-if="selectedCardId === 'new'" class="space-y-1.5">
             <label class="text-xs font-medium text-foreground">Nome do cartão</label>
             <input
               v-model="cardName"

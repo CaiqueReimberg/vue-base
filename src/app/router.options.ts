@@ -19,6 +19,11 @@ export default <RouterConfig>{
           component: DashboardView,
         },
         {
+          path: 'incomes',
+          name: 'incomes',
+          component: () => import('@/views/IncomesView.vue'),
+        },
+        {
           path: 'movements',
           name: 'movements',
           component: () => import('@/views/MovementsView.vue'),

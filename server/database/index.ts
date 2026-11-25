@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
 import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3'
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres'
 import pg from 'pg'
-import { DEFAULT_CATEGORIES, runPostgresMigrations } from './migrate'
+import { DEFAULT_CATEGORIES, LAST_MIGRATION_ID, runPostgresMigrations } from './migrate'
 import { createPoolConfig } from './pool-config'
 import * as pgSchema from './schema.pg'
 import * as sqliteSchema from './schema.sqlite'
@@ -218,6 +218,39 @@ function createSqliteDb() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS income_entries (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      source TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'freelance',
+      amount REAL NOT NULL,
+      reference_month TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      is_recurring INTEGER NOT NULL DEFAULT 0,
+      end_month TEXT,
+      notes TEXT,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS card_monthly_invoices (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      reference_month TEXT NOT NULL,
+      amount REAL NOT NULL,
+      due_day INTEGER,
+      is_shared INTEGER NOT NULL DEFAULT 0,
+      paid_at TEXT,
+      paid_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      family_id TEXT REFERENCES families(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(card_id, reference_month)
+    );
   `)
 
   const userCols = (sqlite.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map(
@@ -253,6 +286,13 @@ function createSqliteDb() {
     sqlite.exec('ALTER TABLE transactions ADD COLUMN paid_by_user_id TEXT;')
   }
 
+  const invCols = (sqlite.prepare('PRAGMA table_info(invoice_analyses)').all() as Array<{ name: string }>).map(
+    (c) => c.name,
+  )
+  if (!invCols.includes('card_id')) {
+    sqlite.exec('ALTER TABLE invoice_analyses ADD COLUMN card_id TEXT;')
+  }
+
   const countRow = sqlite
     .prepare('SELECT COUNT(*) as cnt FROM categories WHERE user_id IS NULL')
     .get() as { cnt: number }
@@ -272,43 +312,77 @@ function createSqliteDb() {
   return drizzleSqlite(sqlite, { schema: sqliteSchema })
 }
 
+interface GlobalPgCache {
+  pool?: pg.Pool
+  readyForMigrationId?: string
+  inFlightReady?: Promise<void> | null
+}
+
+const globalForPg = globalThis as unknown as {
+  __dualpactPgCache?: GlobalPgCache
+}
+
+const pgCache: GlobalPgCache = globalForPg.__dualpactPgCache ?? {}
+globalForPg.__dualpactPgCache = pgCache
+
 let dbInstance: ReturnType<typeof createSqliteDb>
 let pgPool: pg.Pool | null = null
 
 if (process.env.DATABASE_URL) {
-  pgPool = new pg.Pool(createPoolConfig(process.env.DATABASE_URL))
+  if (!pgCache.pool) {
+    const createdPool = new pg.Pool(createPoolConfig(process.env.DATABASE_URL))
 
-  // Sem esse handler, um socket morto em cliente ocioso derruba o processo/requisição
-  pgPool.on('error', (err) => {
-    console.error('[DuoPact] Erro em conexão ociosa do pool (será descartada):', err.message)
-  })
+    // Sem esse handler, um socket morto em cliente ocioso derruba o processo/requisição
+    createdPool.on('error', (err) => {
+      console.error('[DuoPact] Erro em conexão ociosa do pool (será descartada):', err.message)
+    })
 
+    pgCache.pool = createdPool
+  }
+
+  pgPool = pgCache.pool
   dbInstance = drizzlePg(pgPool, { schema: pgSchema }) as unknown as ReturnType<typeof createSqliteDb>
 } else {
   dbInstance = createSqliteDb()
 }
 
-export async function ensureDatabaseReady(): Promise<void> {
-  if (!pgPool) return
+export function ensureDatabaseReady(): Promise<void> {
+  if (!pgPool) return Promise.resolve()
 
-  const maxAttempts = 4
-  let lastError: unknown
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      await runPostgresMigrations(pgPool, pgSchema.DB_SCHEMA_NAME)
-      return
-    } catch (err) {
-      lastError = err
-      console.error(
-        `[DuoPact] Falha ao preparar banco (tentativa ${attempt}/${maxAttempts}):`,
-        err instanceof Error ? err.message : err,
-      )
-      if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 400 * attempt))
+  if (pgCache.readyForMigrationId === LAST_MIGRATION_ID) {
+    return Promise.resolve()
+  }
+
+  if (pgCache.inFlightReady) {
+    return pgCache.inFlightReady
+  }
+
+  const poolRef = pgPool
+  pgCache.inFlightReady = (async () => {
+    const maxAttempts = 4
+    let lastError: unknown
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await runPostgresMigrations(poolRef, pgSchema.DB_SCHEMA_NAME)
+        pgCache.readyForMigrationId = LAST_MIGRATION_ID
+        return
+      } catch (err) {
+        lastError = err
+        console.error(
+          `[DuoPact] Falha ao preparar banco (tentativa ${attempt}/${maxAttempts}):`,
+          err instanceof Error ? err.message : err,
+        )
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 600 * attempt))
+        }
       }
     }
-  }
-  throw lastError
+    throw lastError
+  })().finally(() => {
+    pgCache.inFlightReady = null
+  })
+
+  return pgCache.inFlightReady
 }
 
 export const db = dbInstance

@@ -3,6 +3,9 @@ import { request } from './client'
 
 export interface MonthlyPlanResponse {
   referenceMonth: string
+  baseMonthlyIncome?: number
+  incomesTotal?: number
+  incomesCount?: number
   monthlyIncome: number
   savingsGoal: number
   savingsPaid: boolean

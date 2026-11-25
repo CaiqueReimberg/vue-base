@@ -3,10 +3,12 @@ import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '../database'
 import {
   accounts,
+  cardMonthlyInvoices,
   cards,
   categories,
   debtPayments,
   families,
+  invoiceAnalyses,
   monthlyPlans,
   recurringMonthOverrides,
   recurringPayments,
@@ -27,6 +29,7 @@ import {
   getPublicUsersMap,
   getSystemFeatureFlagsMap,
 } from './household'
+import { sumUserIncomesByMonths } from './incomes'
 import { findVisibleActiveRecurringsForMonth } from './recurring'
 import { mapAccountsWithEffectiveBalance } from './resources'
 import { getDebtStartMonth, getMonthsDiff, isDebtActiveInMonth } from './transactions'
@@ -116,6 +119,7 @@ async function findVisibleCardsRaw(userId: string) {
     closingDay: c.closingDay,
     dueDay: c.dueDay,
     isActive: c.isActive,
+    shareWithPartner: Boolean(c.shareWithPartner),
     ownerId: c.userId,
   }))
 }
@@ -176,20 +180,98 @@ async function isCardInvoicePaid(
 }
 
 async function buildCardInvoiceItems(userId: string, referenceMonth: string) {
-  const visibleCards = await findVisibleCardsRaw(userId)
+  const visibility = await getHouseholdVisibility(userId)
+
+  // Busca todos os cartões da família que são do usuário, compartilhados ou possuem fatura compartilhada no mês
+  const allFamilyCards = await db
+    .select()
+    .from(cards)
+    .where(and(inArray(cards.userId, visibility.memberIds), eq(cards.isActive, true)))
+
+  if (allFamilyCards.length === 0) return []
+
+  const cardIds = allFamilyCards.map((c) => c.id)
+
+  const [monthInvoices, monthAnalyses] = await Promise.all([
+    db
+      .select()
+      .from(cardMonthlyInvoices)
+      .where(
+        and(
+          inArray(cardMonthlyInvoices.cardId, cardIds),
+          eq(cardMonthlyInvoices.referenceMonth, referenceMonth),
+        ),
+      ),
+    db
+      .select({ id: invoiceAnalyses.id, cardId: invoiceAnalyses.cardId })
+      .from(invoiceAnalyses)
+      .where(
+        and(
+          inArray(invoiceAnalyses.cardId, cardIds),
+          eq(invoiceAnalyses.referenceMonth, referenceMonth),
+        ),
+      ),
+  ])
+
+  const invByCard = new Map(monthInvoices.map((i) => [i.cardId, i]))
+  const analysisByCard = new Map(
+    monthAnalyses.filter((a) => a.cardId).map((a) => [a.cardId as string, a.id]),
+  )
+
+  const allUserIds = [
+    ...allFamilyCards.map((c) => c.userId),
+    ...monthInvoices.map((i) => i.paidByUserId).filter(Boolean) as string[],
+  ]
+  const usersMap = await getPublicUsersMap(allUserIds)
   const refDate = referenceMonthMidUtc(referenceMonth)
+
   const items: Array<{
+    invoiceId: string | null
     cardId: string
     name: string
     invoiceValue: number
     closingDay: number
     dueDay: number
     paid: boolean
+    paidAt: string | null
+    paidByUserId: string | null
+    paidBy: ReturnType<typeof usersMap.get> | null
     ownerId: string
+    owner: ReturnType<typeof usersMap.get> | null
+    isShared: boolean
+    analysisId: string | null
   }> = []
 
-  for (const card of visibleCards) {
-    if (!card.isActive) continue
+  for (const card of allFamilyCards) {
+    const monthlyInv = invByCard.get(card.id)
+
+    if (monthlyInv) {
+      const visibleToUser =
+        card.userId === userId || Boolean(card.shareWithPartner) || Boolean(monthlyInv.isShared)
+      if (!visibleToUser) continue
+
+      const payerId = monthlyInv.paidByUserId || (monthlyInv.paidAt ? monthlyInv.userId : null)
+      items.push({
+        invoiceId: monthlyInv.id,
+        cardId: card.id,
+        name: card.name,
+        invoiceValue: roundMoney(Number(monthlyInv.amount)),
+        closingDay: card.closingDay,
+        dueDay: monthlyInv.dueDay ?? card.dueDay,
+        paid: Boolean(monthlyInv.paidAt),
+        paidAt: monthlyInv.paidAt ?? null,
+        paidByUserId: payerId,
+        paidBy: payerId ? usersMap.get(payerId) ?? null : null,
+        ownerId: card.userId,
+        owner: usersMap.get(card.userId) ?? null,
+        isShared: Boolean(monthlyInv.isShared || card.shareWithPartner),
+        analysisId: analysisByCard.get(card.id) ?? null,
+      })
+      continue
+    }
+
+    // Fallback legado caso algum cartão antigo tenha lançamentos diretos na tabela transactions
+    if (card.userId !== userId && !card.shareWithPartner) continue
 
     const cycles = buildCyclesAroundReference(
       card.closingDay,
@@ -208,22 +290,31 @@ async function buildCardInvoiceItems(userId: string, referenceMonth: string) {
 
     const invoiceValue = await sumCardCycleExpenses(
       card.id,
-      card.ownerId,
+      card.userId,
       userId,
       dueCycle.periodStart,
       dueCycle.periodEnd
     )
 
-    const paid = await isCardInvoicePaid(card.id, card.ownerId, referenceMonth, userId)
+    if (invoiceValue <= 0) continue
+
+    const paid = await isCardInvoicePaid(card.id, card.userId, referenceMonth, userId)
 
     items.push({
+      invoiceId: null,
       cardId: card.id,
       name: card.name,
       invoiceValue: roundMoney(invoiceValue),
       closingDay: card.closingDay,
       dueDay: dueCycle.dueDate.getUTCDate(),
       paid,
-      ownerId: card.ownerId,
+      paidAt: null,
+      paidByUserId: paid ? card.userId : null,
+      paidBy: paid ? usersMap.get(card.userId) ?? null : null,
+      ownerId: card.userId,
+      owner: usersMap.get(card.userId) ?? null,
+      isShared: Boolean(card.shareWithPartner),
+      analysisId: analysisByCard.get(card.id) ?? null,
     })
   }
 
@@ -268,14 +359,28 @@ async function sumMonthlyIncome(userId: string, referenceMonth: string) {
     .reduce((sum, t) => sum + Number(t.amount), 0)
 }
 
+function recurringCountsForUserBudget(
+  r: { ownerId: string; paid: boolean; paidByUserId?: string | null },
+  targetUserId: string,
+): boolean {
+  if (!r.paid) {
+    return r.ownerId === targetUserId
+  }
+  const payerId = r.paidByUserId || r.ownerId
+  return payerId === targetUserId
+}
+
 async function buildDiscriminatedPersonOverview(
   targetUserId: string,
   referenceMonth: string,
-  hasPartner: boolean,
 ) {
-  const [plan, recItems, ownAccountsRaw, txRows, usersMap] = await Promise.all([
+  const visibility = await getHouseholdVisibility(targetUserId)
+  const hasPartner = visibility.partnerIds.length > 0
+
+  const [plan, recItems, cardItems, ownAccountsRaw, txRows, usersMap] = await Promise.all([
     getMonthlyPlan(targetUserId, referenceMonth),
     buildRecurringBillItems(targetUserId, referenceMonth),
+    buildCardInvoiceItems(targetUserId, referenceMonth),
     db
       .select()
       .from(accounts)
@@ -283,7 +388,18 @@ async function buildDiscriminatedPersonOverview(
     db
       .select()
       .from(transactions)
-      .where(and(eq(transactions.userId, targetUserId), eq(transactions.type, 'expense'))),
+      .where(
+        and(
+          inArray(transactions.userId, visibility.memberIds),
+          eq(transactions.type, 'expense'),
+          hasPartner
+            ? or(
+                eq(transactions.userId, targetUserId),
+                and(inArray(transactions.userId, visibility.partnerIds), eq(transactions.isShared, true)),
+              )!
+            : eq(transactions.userId, targetUserId),
+        ),
+      ),
     getPublicUsersMap([targetUserId]),
   ])
 
@@ -292,43 +408,46 @@ async function buildDiscriminatedPersonOverview(
     ownAccounts.reduce((s, a) => s + Number(a.balance || 0), 0),
   )
 
-  const monthStandaloneOwn = txRows.filter(
-    (t) => !t.cardId && !t.isShared && expenseBelongsToMonth(t, referenceMonth),
+  const standaloneCandidates = txRows.filter(
+    (t) => !t.cardId && expenseBelongsToMonth(t, referenceMonth),
   )
-
-  const ownIndividualRec = recItems
-    .filter((r) => !r.isShared && r.ownerId === targetUserId)
-    .reduce((s, r) => s + r.value, 0)
-  const ownIndividualTx = monthStandaloneOwn.reduce((s, t) => s + Number(t.amount), 0)
-  const individualBillsTotal = roundMoney(ownIndividualRec + ownIndividualTx)
-
-  // Contas compartilhadas do casal (recorrentes + dívidas compartilhadas da família)
-  const visibility = await getHouseholdVisibility(targetUserId)
-  const sharedTxRows =
-    visibility.memberIds.length > 0
+  const debtIds = standaloneCandidates.filter((t) => t.kind === 'debt').map((t) => t.id)
+  const debtPaidRows =
+    debtIds.length > 0
       ? await db
           .select()
-          .from(transactions)
+          .from(debtPayments)
           .where(
             and(
-              inArray(transactions.userId, visibility.memberIds),
-              eq(transactions.type, 'expense'),
-              eq(transactions.isShared, true),
+              inArray(debtPayments.transactionId, debtIds),
+              eq(debtPayments.referenceMonth, referenceMonth),
             ),
           )
       : []
+  const debtPayerByTx = new Map(debtPaidRows.map((p) => [p.transactionId, p.userId]))
 
-  const sharedRecTotal = recItems
-    .filter((r) => r.isShared)
+  const monthStandaloneForBudget = standaloneCandidates.filter((t) => {
+    if (t.kind === 'debt') {
+      const payerId = debtPayerByTx.get(t.id)
+      if (!payerId) return t.userId === targetUserId
+      return payerId === targetUserId
+    }
+    const isPaid = t.status === 'cleared' || t.status === 'paid' || Boolean(t.paidAt)
+    if (!isPaid) return t.userId === targetUserId
+    const payerId = t.paidByUserId || t.userId
+    return payerId === targetUserId
+  })
+
+  const ownRecurringTotal = recItems
+    .filter((r) => recurringCountsForUserBudget(r, targetUserId))
     .reduce((s, r) => s + r.value, 0)
-  const sharedTxTotal = sharedTxRows
-    .filter((t) => !t.cardId && expenseBelongsToMonth(t, referenceMonth))
-    .reduce((s, t) => s + Number(t.amount), 0)
+  const ownCardTotal = cardItems
+    .filter((c) => recurringCountsForUserBudget(c, targetUserId) && c.invoiceValue > 0)
+    .reduce((s, c) => s + c.invoiceValue, 0)
+  const ownStandaloneTotal = monthStandaloneForBudget.reduce((s, t) => s + Number(t.amount), 0)
 
-  const sharedBillsTotal = roundMoney(sharedRecTotal + sharedTxTotal)
-  const sharedBillsHalf = hasPartner ? roundMoney(sharedBillsTotal / 2) : sharedBillsTotal
-  const totalBillsShare = roundMoney(individualBillsTotal + sharedBillsHalf)
-  const freeBalance = roundMoney(plan.monthlyIncome - totalBillsShare - plan.savingsGoal)
+  const ownBillsTotal = roundMoney(ownRecurringTotal + ownCardTotal + ownStandaloneTotal)
+  const freeBalance = roundMoney(plan.monthlyIncome - ownBillsTotal - plan.savingsGoal)
   const person = usersMap.get(targetUserId)
 
   return {
@@ -336,9 +455,9 @@ async function buildDiscriminatedPersonOverview(
     name: person?.name || person?.email?.split('@')[0] || 'Par',
     email: person?.email || '',
     monthlyIncome: plan.monthlyIncome,
-    individualBillsTotal,
-    sharedBillsHalf,
-    totalBillsShare,
+    individualBillsTotal: ownBillsTotal,
+    sharedBillsHalf: 0,
+    totalBillsShare: ownBillsTotal,
     savingsGoal: plan.savingsGoal,
     savingsPaid: plan.savingsPaid,
     freeBalance,
@@ -370,16 +489,18 @@ export async function getMonthlyCommitment(userId: string, month?: string) {
       partnerOverview = await buildDiscriminatedPersonOverview(
         visibility.partnerIds[0],
         referenceMonth,
-        true,
       )
     }
   }
 
-  const recurringTotal = recurringItems.reduce((s, i) => s + i.value, 0)
-  const recurringPaid = recurringItems.filter((i) => i.paid).reduce((s, i) => s + i.value, 0)
+  const ownRecurringItems = recurringItems.filter((i) => recurringCountsForUserBudget(i, userId))
+  const ownCardItems = cardItems.filter((i) => recurringCountsForUserBudget(i, userId))
 
-  const cardTotal = cardItems.reduce((s, i) => s + i.invoiceValue, 0)
-  const cardPaid = cardItems.filter((i) => i.paid).reduce((s, i) => s + i.invoiceValue, 0)
+  const recurringTotal = ownRecurringItems.reduce((s, i) => s + i.value, 0)
+  const recurringPaid = ownRecurringItems.filter((i) => i.paid).reduce((s, i) => s + i.value, 0)
+
+  const cardTotal = ownCardItems.reduce((s, i) => s + i.invoiceValue, 0)
+  const cardPaid = ownCardItems.filter((i) => i.paid).reduce((s, i) => s + i.invoiceValue, 0)
 
   const totalCommitted = recurringTotal + cardTotal
   const totalPaid = recurringPaid + cardPaid
@@ -512,52 +633,22 @@ export async function getAgenda(userId: string, month?: string) {
     })
   }
 
-  // Somente exibe cartões manuais legados se o módulo "cards" estiver habilitado nas feature flags
-  if (systemFlags.cards !== false) {
-    const [cardItems, visibleCards] = await Promise.all([
-      buildCardInvoiceItems(userId, referenceMonth),
-      findVisibleCardsRaw(userId),
-    ])
-
-    const refDate = referenceMonthMidUtc(referenceMonth)
-    for (const card of visibleCards) {
-      if (!card.isActive) continue
-      const cycles = buildCyclesAroundReference(card.closingDay, card.dueDay, 3, 3, refDate)
-
-      const closeCycle = cycles.find((c) => formatReferenceMonth(c.periodEnd) === referenceMonth)
-      if (closeCycle) {
-        const invoice = cardItems.find((i) => i.cardId === card.id)
-        events.push({
-          day: closeCycle.periodEnd.getUTCDate(),
-          type: 'invoice_close',
-          name: card.name,
-          subtitle: 'Fechamento da fatura',
-          value: null,
-          paid: invoice?.paid ?? false,
-          isShared: true,
-          referenceId: card.id,
-          ownerId: card.ownerId,
-        })
-      }
-
-      const dueCycle = cycles.find((c) => formatReferenceMonth(c.dueDate) === referenceMonth)
-      if (dueCycle) {
-        const invoice = cardItems.find((i) => i.cardId === card.id)
-        if ((invoice?.invoiceValue ?? 0) > 0) {
-          events.push({
-            day: dueCycle.dueDate.getUTCDate(),
-            type: 'invoice_due',
-            name: `Fatura ${card.name}`,
-            subtitle: 'Vencimento da fatura',
-            value: invoice?.invoiceValue ?? 0,
-            paid: invoice?.paid ?? false,
-            isShared: true,
-            referenceId: card.id,
-            ownerId: card.ownerId,
-          })
-        }
-      }
-    }
+  // Faturas de cartão lançadas no mês (card_monthly_invoices)
+  const cardItems = await buildCardInvoiceItems(userId, referenceMonth)
+  for (const inv of cardItems) {
+    if (inv.invoiceValue <= 0) continue
+    events.push({
+      day: inv.dueDay,
+      type: 'invoice_due',
+      name: `Fatura ${inv.name}`,
+      subtitle: 'Fatura de cartão de crédito',
+      value: inv.invoiceValue,
+      paid: inv.paid,
+      paidBy: inv.paidBy ?? null,
+      isShared: Boolean(inv.isShared),
+      referenceId: inv.cardId,
+      ownerId: inv.ownerId,
+    })
   }
 
   events.sort((a, b) => {
@@ -573,24 +664,37 @@ export async function getAgenda(userId: string, month?: string) {
 export async function getMonthlyPlan(userId: string, month?: string) {
   const referenceMonth = resolveReferenceMonth(month)
 
-  // Renda, Meta de Guardar e Fechamento são SEMPRE individuais de cada pessoa (userId)
-  const rows = await db
-    .select()
-    .from(monthlyPlans)
-    .where(
-      and(
-        eq(monthlyPlans.userId, userId),
-        eq(monthlyPlans.referenceMonth, referenceMonth)
+  const [rows, incomesMap] = await Promise.all([
+    db
+      .select()
+      .from(monthlyPlans)
+      .where(
+        and(
+          eq(monthlyPlans.userId, userId),
+          eq(monthlyPlans.referenceMonth, referenceMonth)
+        )
       )
-    )
-    .orderBy(desc(monthlyPlans.updatedAt))
-    .limit(1)
+      .orderBy(desc(monthlyPlans.updatedAt))
+      .limit(1),
+    sumUserIncomesByMonths(userId, [referenceMonth]),
+  ])
+
+  const incomesInfo = incomesMap.get(referenceMonth) ?? {
+    total: 0,
+    count: 0,
+    fixedTotal: 0,
+    variableTotal: 0,
+  }
 
   if (rows.length > 0) {
     const plan = rows[0]
+    const baseMonthlyIncome = roundMoney(Number(plan.monthlyIncome))
     return {
       referenceMonth,
-      monthlyIncome: roundMoney(Number(plan.monthlyIncome)),
+      baseMonthlyIncome,
+      incomesTotal: incomesInfo.total,
+      incomesCount: incomesInfo.count,
+      monthlyIncome: roundMoney(baseMonthlyIncome + incomesInfo.total),
       savingsGoal: roundMoney(Number(plan.savingsGoal)),
       savingsPaid: Boolean(plan.savingsPaidAt),
       savingsPaidAt: plan.savingsPaidAt ?? null,
@@ -602,7 +706,7 @@ export async function getMonthlyPlan(userId: string, month?: string) {
     }
   }
 
-  // Herda automaticamente a Renda Mensal e Meta de Guardar do último mês configurado por ESTA pessoa
+  // Herda automaticamente a Renda Base e Meta de Guardar do último mês configurado por ESTA pessoa
   const latestRows = await db
     .select()
     .from(monthlyPlans)
@@ -612,9 +716,13 @@ export async function getMonthlyPlan(userId: string, month?: string) {
 
   if (latestRows.length > 0) {
     const prev = latestRows[0]
+    const baseMonthlyIncome = roundMoney(Number(prev.monthlyIncome))
     return {
       referenceMonth,
-      monthlyIncome: roundMoney(Number(prev.monthlyIncome)),
+      baseMonthlyIncome,
+      incomesTotal: incomesInfo.total,
+      incomesCount: incomesInfo.count,
+      monthlyIncome: roundMoney(baseMonthlyIncome + incomesInfo.total),
       savingsGoal: roundMoney(Number(prev.savingsGoal)),
       savingsPaid: false,
       savingsPaidAt: null,
@@ -627,7 +735,10 @@ export async function getMonthlyPlan(userId: string, month?: string) {
 
   return {
     referenceMonth,
-    monthlyIncome: 0,
+    baseMonthlyIncome: 0,
+    incomesTotal: incomesInfo.total,
+    incomesCount: incomesInfo.count,
+    monthlyIncome: roundMoney(incomesInfo.total),
     savingsGoal: 0,
     savingsPaid: false,
     savingsPaidAt: null,
@@ -708,7 +819,7 @@ export async function upsertMonthlyPlan(
 
   const prevPlan = await getMonthlyPlan(userId, referenceMonth)
   const income =
-    payload.monthlyIncome !== undefined ? Number(payload.monthlyIncome) : prevPlan.monthlyIncome
+    payload.monthlyIncome !== undefined ? Number(payload.monthlyIncome) : prevPlan.baseMonthlyIncome
   const savings =
     payload.savingsGoal !== undefined ? Number(payload.savingsGoal) : prevPlan.savingsGoal
   const savingsPaidAt = payload.savingsPaid ? now : null
@@ -784,7 +895,7 @@ export async function getMonthlyHistory(
   const visibility = await getHouseholdVisibility(userId)
   const hasPartner = visibility.partnerIds.length > 0
 
-  const [allPlans, expenseRows, commitments] = await Promise.all([
+  const [allPlans, expenseRows, commitments, incomesByMonth] = await Promise.all([
     db
       .select()
       .from(monthlyPlans)
@@ -800,12 +911,13 @@ export async function getMonthlyHistory(
           hasPartner
             ? or(
                 eq(transactions.userId, userId),
-                and(inArray(transactions.userId, visibility.partnerIds), eq(transactions.isShared, true))
+                and(inArray(transactions.userId, visibility.partnerIds), eq(transactions.isShared, true)),
               )!
-            : eq(transactions.userId, userId)
+            : eq(transactions.userId, userId),
         )
       ),
     Promise.all(list.map((m) => getMonthlyCommitment(userId, m))),
+    sumUserIncomesByMonths(userId, list),
   ])
 
   const debtIds = expenseRows.filter((t) => t.kind === 'debt').map((t) => t.id)
@@ -817,8 +929,8 @@ export async function getMonthlyHistory(
           .where(inArray(debtPayments.transactionId, debtIds))
       : []
 
-  const debtPaidSet = new Set(
-    debtPaidRows.map((p) => `${p.transactionId}:${p.referenceMonth}`)
+  const debtPayerByTxMonth = new Map(
+    debtPaidRows.map((p) => [`${p.transactionId}:${p.referenceMonth}`, p.userId])
   )
 
   const planByMonth = new Map<string, (typeof allPlans)[number]>()
@@ -829,34 +941,44 @@ export async function getMonthlyHistory(
 
   const standalone = expenseRows.filter((t) => !t.cardId)
 
-  const shareFactor = (isShared?: boolean | null) => (hasPartner && isShared ? 0.5 : 1)
-
   const result: MonthlyHistoryEntry[] = list.map((month, idx) => {
     const exactPlan = planByMonth.get(month)
-    const monthStandalone = standalone.filter((t) => expenseBelongsToMonth(t, month))
+    const monthStandalone = standalone.filter((t) => {
+      if (!expenseBelongsToMonth(t, month)) return false
+      if (t.kind === 'debt') {
+        const payerId = debtPayerByTxMonth.get(`${t.id}:${month}`)
+        return payerId ? payerId === userId : t.userId === userId
+      }
+      const isPaid = t.status === 'cleared' || t.status === 'paid' || Boolean(t.paidAt)
+      if (!isPaid) return t.userId === userId
+      const payerId = t.paidByUserId || t.userId
+      return payerId === userId
+    })
 
     const standaloneTotal = monthStandalone.reduce(
-      (s, t) => s + Number(t.amount) * shareFactor(t.isShared),
+      (s, t) => s + Number(t.amount),
       0,
     )
     const debtsTotal = monthStandalone
       .filter((t) => t.kind === 'debt')
-      .reduce((s, t) => s + Number(t.amount) * shareFactor(t.isShared), 0)
+      .reduce((s, t) => s + Number(t.amount), 0)
 
     const standalonePaid = monthStandalone
       .filter((t) => {
-        if (t.kind === 'debt') return debtPaidSet.has(`${t.id}:${month}`)
+        if (t.kind === 'debt') return debtPayerByTxMonth.has(`${t.id}:${month}`)
         return t.status === 'cleared' || t.status === 'paid' || Boolean(t.paidAt)
       })
-      .reduce((s, t) => s + Number(t.amount) * shareFactor(t.isShared), 0)
+      .reduce((s, t) => s + Number(t.amount), 0)
 
     const commitment = commitments[idx]
-    const recItems = commitment.breakdown.recurringBills.items
+    const recItems = commitment.breakdown.recurringBills.items.filter((r) =>
+      recurringCountsForUserBudget(r, userId),
+    )
     const recurringTotal = roundMoney(
-      recItems.reduce((s, r) => s + r.value * shareFactor(r.isShared), 0),
+      recItems.reduce((s, r) => s + r.value, 0),
     )
     const recurringPaid = roundMoney(
-      recItems.filter((r) => r.paid).reduce((s, r) => s + r.value * shareFactor(r.isShared), 0),
+      recItems.filter((r) => r.paid).reduce((s, r) => s + r.value, 0),
     )
     const cardsTotal = roundMoney(commitment.breakdown.cardInvoices.total)
     const cardsPaid = roundMoney(commitment.breakdown.cardInvoices.paid)
@@ -864,12 +986,14 @@ export async function getMonthlyHistory(
     const billsPaid = roundMoney(recurringPaid + cardsPaid + standalonePaid)
     const billsPending = roundMoney(Math.max(bills - billsPaid, 0))
 
-    // Se o mês tem contas ativas mas ainda não teve um monthly_plan salvo diretamente nele,
-    // usa a renda/meta configurada no plano mais recente (igual a Home faz)
-    const fallbackPlan = !exactPlan && bills > 0 ? latestConfiguredPlan : null
+    // Se o mês tem contas ou ganhos ativos mas ainda não teve um monthly_plan salvo diretamente nele,
+    // usa a renda base / meta configurada no plano mais recente (igual a Home faz)
+    const monthIncomesTotal = incomesByMonth.get(month)?.total ?? 0
+    const fallbackPlan = !exactPlan && (bills > 0 || monthIncomesTotal > 0) ? latestConfiguredPlan : null
     const effectivePlan = exactPlan ?? fallbackPlan
 
-    const income = effectivePlan ? roundMoney(Number(effectivePlan.monthlyIncome)) : 0
+    const baseIncome = effectivePlan ? roundMoney(Number(effectivePlan.monthlyIncome)) : 0
+    const income = roundMoney(baseIncome + monthIncomesTotal)
     const savingsGoal = effectivePlan ? roundMoney(Number(effectivePlan.savingsGoal)) : 0
     const savingsPaid = Boolean(exactPlan?.savingsPaidAt)
     const leftover =

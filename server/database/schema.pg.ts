@@ -238,12 +238,51 @@ export const savingsContributions = dualpactSchema.table('savings_contributions'
 
 export const invoiceAnalyses = dualpactSchema.table('invoice_analyses', {
   id: text('id').primaryKey(),
+  cardId: text('card_id').references(() => cards.id, { onDelete: 'set null' }),
   cardName: text('card_name').notNull(),
   referenceMonth: text('reference_month').notNull(), // 'YYYY-MM'
   totalAmount: doublePrecision('total_amount').notNull().default(0),
   itemsCount: integer('items_count').notNull().default(0),
   itemsJson: text('items_json').notNull(), // JSON array of parsed items
-  isShared: boolean('is_shared').notNull().default(true),
+  isShared: boolean('is_shared').notNull().default(false),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const cardMonthlyInvoices = dualpactSchema.table('card_monthly_invoices', {
+  id: text('id').primaryKey(),
+  cardId: text('card_id')
+    .notNull()
+    .references(() => cards.id, { onDelete: 'cascade' }),
+  referenceMonth: text('reference_month').notNull(), // 'YYYY-MM'
+  amount: doublePrecision('amount').notNull(),
+  dueDay: integer('due_day'),
+  isShared: boolean('is_shared').notNull().default(false),
+  paidAt: text('paid_at'),
+  paidByUserId: text('paid_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+export const incomeEntries = dualpactSchema.table('income_entries', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  source: text('source').notNull(),
+  category: text('category').notNull().default('freelance'),
+  amount: doublePrecision('amount').notNull(),
+  referenceMonth: text('reference_month').notNull(), // 'YYYY-MM' (ou mês inicial se isRecurring = true)
+  receivedAt: text('received_at').notNull(), // 'YYYY-MM-DD'
+  isRecurring: boolean('is_recurring').notNull().default(false),
+  endMonth: text('end_month'), // 'YYYY-MM' opcional quando encerrado
+  notes: text('notes'),
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
