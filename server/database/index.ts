@@ -239,6 +239,20 @@ function createSqliteDb() {
     sqlite.exec('ALTER TABLE users ADD COLUMN onboarding_completed_at TEXT;')
   }
 
+  const famCols = (sqlite.prepare('PRAGMA table_info(families)').all() as Array<{ name: string }>).map(
+    (c) => c.name,
+  )
+  if (!famCols.includes('share_overview')) {
+    sqlite.exec('ALTER TABLE families ADD COLUMN share_overview INTEGER NOT NULL DEFAULT 0;')
+  }
+
+  const txCols = (sqlite.prepare('PRAGMA table_info(transactions)').all() as Array<{ name: string }>).map(
+    (c) => c.name,
+  )
+  if (!txCols.includes('paid_by_user_id')) {
+    sqlite.exec('ALTER TABLE transactions ADD COLUMN paid_by_user_id TEXT;')
+  }
+
   const countRow = sqlite
     .prepare('SELECT COUNT(*) as cnt FROM categories WHERE user_id IS NULL')
     .get() as { cnt: number }

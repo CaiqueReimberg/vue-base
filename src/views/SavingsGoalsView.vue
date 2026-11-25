@@ -49,7 +49,7 @@ const formName = ref('')
 const formTarget = ref<number | ''>('')
 const formDate = ref('')
 const formAccountId = ref<string>('')
-const formShared = ref(true)
+const formShared = ref(false)
 const savingGoal = ref(false)
 
 // Drawer 2: Guardar / Retirar em uma Meta
@@ -136,7 +136,7 @@ function openCreateDrawer() {
   formTarget.value = ''
   formDate.value = ''
   formAccountId.value = ''
-  formShared.value = true
+  formShared.value = false
   goalDrawerOpen.value = true
 }
 

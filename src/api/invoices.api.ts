@@ -20,6 +20,8 @@ export interface SavedInvoiceAnalysis {
   items: ParsedInvoiceItem[]
   isShared: boolean
   owner?: PublicOwner | null
+  syncedBillStatus?: 'created' | 'updated' | 'already_paid' | 'none'
+  syncedBillName?: string | null
   createdAt: string
   updatedAt?: string
 }

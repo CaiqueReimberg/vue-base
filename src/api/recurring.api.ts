@@ -38,10 +38,15 @@ export const recurringApi = {
     id: string,
     referenceMonth: string,
     amount?: number,
-  ): Promise<{ paidAt: string; paid: boolean }> {
+    paidByUserId?: string,
+  ): Promise<{ paidAt: string; paid: boolean; paidBy?: { id: string; email: string; name: string | null } | null }> {
     return request(`/recurring/${id}/pay`, {
       method: 'POST',
-      body: JSON.stringify({ referenceMonth, ...(amount !== undefined ? { amount } : {}) }),
+      body: JSON.stringify({
+        referenceMonth,
+        ...(amount !== undefined ? { amount } : {}),
+        ...(paidByUserId ? { paidByUserId } : {}),
+      }),
     })
   },
 

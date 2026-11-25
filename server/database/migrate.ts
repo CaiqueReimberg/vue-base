@@ -398,6 +398,17 @@ const MIGRATIONS: MigrationStep[] = [
         ADD COLUMN IF NOT EXISTS onboarding_completed_at TEXT;
     `,
   },
+  {
+    id: '0013_add_couple_overview_and_payer',
+    description: 'Adiciona share_overview em families e paid_by_user_id em transactions',
+    up: (s) => `
+      ALTER TABLE "${s}".families
+        ADD COLUMN IF NOT EXISTS share_overview BOOLEAN NOT NULL DEFAULT FALSE;
+
+      ALTER TABLE "${s}".transactions
+        ADD COLUMN IF NOT EXISTS paid_by_user_id TEXT REFERENCES "${s}".users(id) ON DELETE SET NULL;
+    `,
+  },
 ]
 
 let migrationPromise: Promise<void> | null = null

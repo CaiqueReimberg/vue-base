@@ -7,6 +7,7 @@ export const dualpactSchema = pgSchema(DB_SCHEMA_NAME)
 export const families = dualpactSchema.table('families', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  shareOverview: boolean('share_overview').notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -179,6 +180,7 @@ export const transactions = dualpactSchema.table('transactions', {
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
+  paidByUserId: text('paid_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   accountId: text('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
   cardId: text('card_id').references(() => cards.id, { onDelete: 'cascade' }),
   categoryId: text('category_id').references(() => categories.id, { onDelete: 'set null' }),

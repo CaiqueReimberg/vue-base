@@ -26,6 +26,8 @@ export interface Transaction {
   createdAt: string
   dueDate?: string | null
   paidAt?: string | null
+  paidBy?: PublicOwner | null
+  paidByByMonth?: Record<string, PublicOwner>
   status?: 'pending' | 'cleared' | 'paid'
   paidMonths?: string[]
   /** Visível para o parceiro no vínculo + entra no orçamento compartilhado quando true. */
@@ -70,6 +72,7 @@ export interface TransactionUpdateInput {
   occurredAt?: string
   dueDate?: string | null
   paidAt?: string | null
+  paidByUserId?: string | null
   status?: 'pending' | 'cleared' | 'paid'
   paymentMonth?: string | null
   isShared?: boolean

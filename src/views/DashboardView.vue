@@ -20,10 +20,13 @@ import {
   type DashboardPendingItem,
 } from '@/stores/dashboard/dashboard.store'
 import { useAccountsStore } from '@/stores/accounts/accounts.store'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useThemeStore } from '@/stores/theme/theme.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import { recurringApi } from '@/api/recurring.api'
 import { transactionsApi } from '@/api/transactions.api'
+import { usersApi } from '@/api/users.api'
+import { isMyResource, payerBadgeLabel, personShortName } from '@/utils/owner'
 import type { DebtCategory } from '@/types/transaction'
 import {
   Calendar,
@@ -54,11 +57,12 @@ import {
 
 const dashboardStore = useDashboardStore()
 const accountsStore = useAccountsStore()
+const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const toastStore = useToastStore()
 
 const { hideValues } = storeToRefs(themeStore)
-const { accounts: vaultAccounts, totalSavedBalance } = storeToRefs(accountsStore)
+const { accounts: vaultAccounts } = storeToRefs(accountsStore)
 
 const {
   loading,
@@ -71,9 +75,55 @@ const {
   paidTotalAmount,
   monthPaymentProgressPercent,
   monthlyPlan,
+  commitment,
   daysRemaining,
   formatCurrency,
 } = storeToRefs(dashboardStore)
+
+const hasPartner = computed(() => Boolean(authStore.profile?.partner))
+const myShortName = computed(() => personShortName(authStore.profile) || 'Você')
+const partnerShortName = computed(
+  () => personShortName(authStore.profile?.partner) || 'Par',
+)
+const coupleShareOverview = computed(() =>
+  Boolean(authStore.profile?.family?.shareOverview ?? commitment.value?.shareOverview),
+)
+const partnerOverview = computed(() => commitment.value?.partnerOverview ?? null)
+const togglingCoupleOverview = ref(false)
+
+async function toggleCoupleOverview() {
+  if (!hasPartner.value || togglingCoupleOverview.value) return
+  togglingCoupleOverview.value = true
+  const nextVal = !coupleShareOverview.value
+  try {
+    const updated = await usersApi.updatePartnerSettings({ shareOverview: nextVal })
+    authStore.profile = updated
+    await dashboardStore.fetchSummary(referenceMonth.value)
+    toastStore.success(
+      nextVal
+        ? 'Visão discriminada do casal habilitada!'
+        : 'Visão discriminada do casal ocultada.',
+    )
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao atualizar preferência do casal.')
+  } finally {
+    togglingCoupleOverview.value = false
+  }
+}
+
+// Patrimônio em CDBs separado: soma nos seus cards apenas as SUAS contas
+const myVaultAccounts = computed(() =>
+  vaultAccounts.value.filter((a) => isMyResource(a.owner ?? null, authStore.currentUserId)),
+)
+const partnerSharedVaultAccounts = computed(() =>
+  vaultAccounts.value.filter((a) => !isMyResource(a.owner ?? null, authStore.currentUserId)),
+)
+const mySavedBalance = computed(() =>
+  myVaultAccounts.value.reduce((sum, a) => sum + Number(a.balance || 0), 0),
+)
+const partnerSharedSavedBalance = computed(() =>
+  partnerSharedVaultAccounts.value.reduce((sum, a) => sum + Number(a.balance || 0), 0),
+)
 
 // 1. Drawer: Editar Renda + Meta de Guardar
 const planDrawerOpen = ref(false)
@@ -94,7 +144,7 @@ const billAmount = ref<number | ''>('')
 const billDueDay = ref<number | ''>(10)
 const billInstallments = ref<number | ''>(36)
 const billDebtCategory = ref<DebtCategory>('car')
-const billShared = ref(true)
+const billShared = ref(false)
 const submitting = ref(false)
 
 const CARD_INVOICE_PRESETS = [
@@ -160,22 +210,54 @@ const sharedTotalBills = computed(() => {
   return pend + paid
 })
 
-// Cálculos do modelo Anti-Planilha:
-// Renda do Mês − Contas do Mês − Quero Guardar = Livre pra Gastar
+// Placar de quem já pagou quanto nas contas compartilhadas do mês
+const sharedPaidByMe = computed(() =>
+  paidItems.value
+    .filter(
+      (i) =>
+        i.isShared &&
+        i.kind !== 'savings' &&
+        i.paidBy?.id === authStore.currentUserId,
+    )
+    .reduce((s, i) => s + i.amount, 0),
+)
+
+const sharedPaidByPartner = computed(() =>
+  paidItems.value
+    .filter(
+      (i) =>
+        i.isShared &&
+        i.kind !== 'savings' &&
+        i.paidBy?.id &&
+        i.paidBy.id !== authStore.currentUserId,
+    )
+    .reduce((s, i) => s + i.amount, 0),
+)
+
+// Contas individuais desta pessoa + metade das contas marcadas como Casal (quando em casal)
+const myIndividualBillsTotal = computed(() => {
+  const pend = pendingItems.value
+    .filter((i) => !i.isShared && i.kind !== 'savings')
+    .reduce((s, i) => s + i.amount, 0)
+  const paid = paidItems.value
+    .filter((i) => !i.isShared && i.kind !== 'savings')
+    .reduce((s, i) => s + i.amount, 0)
+  return pend + paid
+})
+
+const mySharedBillsShare = computed(() =>
+  hasPartner.value ? sharedTotalBills.value / 2 : sharedTotalBills.value,
+)
+
+// Cálculos do modelo Anti-Planilha (estritamente individual + sua parte nas contas compartilhadas):
 const configuredIncome = computed(() => monthlyPlan.value?.monthlyIncome ?? 0)
 const configuredSavings = computed(() => monthlyPlan.value?.savingsGoal ?? 0)
 const isSavingsPaid = computed(() => Boolean(monthlyPlan.value?.savingsPaid))
 const endOfMonthLeftover = computed(() => monthlyPlan.value?.endOfMonthLeftover ?? null)
 
-const totalMonthBills = computed(() => {
-  const pendingBills = pendingItems.value
-    .filter((i) => i.kind !== 'savings')
-    .reduce((s, i) => s + i.amount, 0)
-  const paidBills = paidItems.value
-    .filter((i) => i.kind !== 'savings')
-    .reduce((s, i) => s + i.amount, 0)
-  return pendingBills + paidBills
-})
+const totalMonthBills = computed(
+  () => myIndividualBillsTotal.value + mySharedBillsShare.value,
+)
 
 const totalBillsCount = computed(
   () =>
@@ -322,7 +404,7 @@ function openAddDrawer(mode: 'recurring' | 'card_invoice' | 'debt' = 'recurring'
   billDueDay.value = 10
   billInstallments.value = 36
   billDebtCategory.value = 'car'
-  billShared.value = true
+  billShared.value = false
   addDrawerOpen.value = true
 }
 
@@ -339,8 +421,9 @@ async function submitNewBill() {
   const dayStr = String(Math.min(Math.max(Number(billDueDay.value) || 10, 1), 28)).padStart(2, '0')
 
   try {
+    let wasDeduplicated = false
     if (addMode.value === 'recurring' || addMode.value === 'card_invoice') {
-      await recurringApi.create({
+      const res = (await recurringApi.create({
         name,
         kind: 'fixed_bill',
         transactionType: 'expense',
@@ -348,8 +431,11 @@ async function submitNewBill() {
         amount,
         dueDay: billDueDay.value ? Number(billDueDay.value) : undefined,
         startDate: `${ym}-01`,
+        referenceMonth: ym,
+        isCardInvoice: addMode.value === 'card_invoice',
         isShared: billShared.value,
-      })
+      })) as { deduplicated?: boolean; name?: string } | undefined
+      wasDeduplicated = Boolean(res?.deduplicated)
     } else {
       await transactionsApi.createDebtExpense({
         description: name,
@@ -362,7 +448,11 @@ async function submitNewBill() {
       })
     }
 
-    toastStore.success(`${name} adicionado ao mês!`)
+    toastStore.success(
+      wasDeduplicated
+        ? `${name} já existia e teve o valor deste mês atualizado!`
+        : `${name} adicionado ao mês!`,
+    )
     addDrawerOpen.value = false
     await dashboardStore.fetchSummary(ym)
   } catch (e) {
@@ -392,6 +482,7 @@ const itemDrawerMode = ref<'pay' | 'edit'>('pay')
 const selectedItem = ref<DashboardPendingItem | DashboardPaidItem | null>(null)
 const selectedItemAmount = ref<number | ''>('')
 const selectedVaultAccountId = ref<string>('')
+const selectedPayerUserId = ref<string>('')
 const savingItemAction = ref(false)
 
 function openItemDrawer(
@@ -401,8 +492,9 @@ function openItemDrawer(
   selectedItem.value = item
   selectedItemAmount.value = item.amount
   itemDrawerMode.value = mode
-  if (item.kind === 'savings' && vaultAccounts.value.length > 0 && !selectedVaultAccountId.value) {
-    selectedVaultAccountId.value = vaultAccounts.value[0].id
+  selectedPayerUserId.value = authStore.currentUserId || ''
+  if (item.kind === 'savings' && myVaultAccounts.value.length > 0 && !selectedVaultAccountId.value) {
+    selectedVaultAccountId.value = myVaultAccounts.value[0].id
   }
   itemDrawerOpen.value = true
 }
@@ -422,9 +514,10 @@ async function handleConfirmItemDrawer(alsoMarkPaid = false) {
       await dashboardStore.markPendingItemAsPaid(
         item as DashboardPendingItem,
         numAmount,
+        item.isShared && selectedPayerUserId.value ? selectedPayerUserId.value : undefined,
       )
       if (item.kind === 'savings' && selectedVaultAccountId.value) {
-        const targetVault = vaultAccounts.value.find((a) => a.id === selectedVaultAccountId.value)
+        const targetVault = myVaultAccounts.value.find((a) => a.id === selectedVaultAccountId.value)
         await accountsStore.adjustBalance(selectedVaultAccountId.value, numAmount)
         toastStore.success(
           `${formatCurrency.value(numAmount)} guardados em ${targetVault?.name ?? 'sua reserva'}!`,
@@ -534,24 +627,41 @@ async function handleRemovePending(item: DashboardPendingItem) {
       @open-add-bill="openAddDrawer('recurring')"
     />
 
-    <!-- 1. A EQUAÇÃO DO MÊS (Renda − Contas − Guardar = Livre pra Gastar) -->
+    <!-- 1. A EQUAÇÃO DO MÊS (Sua Renda, Suas Contas, Quero Guardar e Livre) -->
     <Card class="overflow-hidden border-primary/25 shadow-sm">
-      <div class="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5 sm:px-5 sm:py-3">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5 sm:px-5 sm:py-3">
         <div class="flex items-center gap-2">
           <Sparkles class="h-4 w-4 text-primary" />
           <span class="text-xs font-semibold uppercase tracking-wider text-foreground">
-            Orçamento Livre do Mês
+            {{ hasPartner ? `Seu Orçamento (${myShortName})` : 'Orçamento Livre do Mês' }}
           </span>
         </div>
-        <Button
-          variant="ghost"
-          size="xs"
-          class="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-          @click="openPlanDrawer"
-        >
-          <Pencil class="h-3 w-3" />
-          <span>Definir Renda & Meta</span>
-        </Button>
+
+        <div class="flex items-center gap-1.5">
+          <Button
+            v-if="hasPartner"
+            type="button"
+            :variant="coupleShareOverview ? 'secondary' : 'ghost'"
+            size="xs"
+            class="gap-1.5 text-xs"
+            :disabled="togglingCoupleOverview"
+            title="Exibir ou ocultar o quadro comparativo separado do casal"
+            @click="toggleCoupleOverview"
+          >
+            <Users class="h-3 w-3 text-primary" />
+            <span>{{ coupleShareOverview ? 'Ocultar visão do casal' : 'Ver visão do casal' }}</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            @click="openPlanDrawer"
+          >
+            <Pencil class="h-3 w-3" />
+            <span>Definir Renda & Meta</span>
+          </Button>
+        </div>
       </div>
 
       <CardContent class="p-3.5 sm:p-5">
@@ -582,10 +692,10 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </span>
           </button>
 
-          <!-- Bloco 2: Contas a Pagar no Mês -->
+          <!-- Bloco 2: Contas a Pagar no Mês (suas individuais + sua metade das compartilhadas) -->
           <div class="flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4">
             <div class="flex items-center justify-between gap-1">
-              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">2. Contas do mês</span>
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">2. Suas contas</span>
               <Badge variant="secondary" class="text-[10px] px-1.5 py-0 shrink-0">
                 {{ totalBillsCount }}
               </Badge>
@@ -593,7 +703,14 @@ async function handleRemovePending(item: DashboardPendingItem) {
             <div class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight tabular-nums text-foreground">
               {{ formatCurrency(totalMonthBills) }}
             </div>
-            <span class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate tabular-nums">
+            <span
+              v-if="hasPartner && sharedTotalBills > 0"
+              class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate tabular-nums"
+              :title="`Individuais: ${formatCurrency(myIndividualBillsTotal)} + 50% casal: ${formatCurrency(mySharedBillsShare)}`"
+            >
+              Indiv. + 50% casal ({{ formatCurrency(mySharedBillsShare) }})
+            </span>
+            <span v-else class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate tabular-nums">
               Restam {{ formatCurrency(afterBillsAmount) }}
             </span>
           </div>
@@ -669,26 +786,124 @@ async function handleRemovePending(item: DashboardPendingItem) {
         </div>
       </CardContent>
 
-      <!-- Faixa discreta de Patrimônio Acumulado nos CDBs -->
+      <!-- Faixa discreta de Patrimônio Guardado (separado por pessoa, sem somar tudo) -->
       <RouterLink
-        v-if="vaultAccounts.length > 0"
+        v-if="myVaultAccounts.length > 0 || partnerSharedVaultAccounts.length > 0"
         to="/accounts"
-        class="group flex items-center justify-between gap-3 border-t border-border/70 bg-emerald-500/5 px-4 py-2.5 text-xs transition-colors hover:bg-emerald-500/10 sm:px-5"
+        class="group flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-emerald-500/5 px-4 py-2.5 text-xs transition-colors hover:bg-emerald-500/10 sm:px-5"
       >
         <div class="flex items-center gap-2 min-w-0">
           <PiggyBank class="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span class="font-medium text-muted-foreground group-hover:text-foreground transition-colors truncate">
-            Patrimônio guardado ({{ vaultAccounts.length }} {{ vaultAccounts.length === 1 ? 'reserva' : 'CDBs/reservas' }})
+            Seu patrimônio guardado ({{ myVaultAccounts.length }} {{ myVaultAccounts.length === 1 ? 'reserva' : 'reservas' }})
           </span>
         </div>
 
-        <div class="flex items-center gap-1.5 shrink-0">
+        <div class="flex flex-wrap items-center gap-3 shrink-0">
           <strong class="font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
-            {{ formatCurrency(totalSavedBalance) }}
+            {{ formatCurrency(mySavedBalance) }}
           </strong>
+          <span
+            v-if="partnerSharedVaultAccounts.length > 0"
+            class="rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground tabular-nums"
+          >
+            {{ partnerShortName }}: <strong class="text-foreground">{{ formatCurrency(partnerSharedSavedBalance) }}</strong>
+          </span>
           <ChevronRight class="h-3.5 w-3.5 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-emerald-600 transition-all" />
         </div>
       </RouterLink>
+    </Card>
+
+    <!-- QUADRO DISCRIMINADO DO CASAL (VALORES SEPARADOS, SEM MISTURAR) -->
+    <Card
+      v-if="hasPartner && coupleShareOverview && partnerOverview"
+      class="overflow-hidden border-primary/20 bg-card"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-primary/5 px-4 py-2.5 sm:px-5">
+        <div class="flex items-center gap-2">
+          <Users class="h-4 w-4 text-primary" />
+          <span class="text-xs font-semibold text-foreground">
+            Visão do Casal (Valores Separados por Pessoa)
+          </span>
+        </div>
+        <span class="text-[11px] text-muted-foreground">
+          Cada pessoa mantém sua renda e saldo separados
+        </span>
+      </div>
+
+      <CardContent class="p-4 sm:p-5">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <!-- Coluna 1: Você -->
+          <div class="rounded-xl border border-border bg-background p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-border/60 pb-2">
+              <span class="text-xs font-bold text-foreground">{{ myShortName }} (Você)</span>
+              <Badge variant="outline" class="text-[10px] px-1.5 py-0">Individual</Badge>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Renda no mês</span>
+                <strong class="font-semibold tabular-nums text-foreground">{{ formatCurrency(configuredIncome) }}</strong>
+              </div>
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Suas contas (+ 50% casal)</span>
+                <strong class="font-semibold tabular-nums text-foreground">{{ formatCurrency(totalMonthBills) }}</strong>
+              </div>
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Quero guardar</span>
+                <strong class="font-semibold tabular-nums text-primary">{{ formatCurrency(configuredSavings) }}</strong>
+              </div>
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Livre no mês</span>
+                <strong
+                  class="font-bold tabular-nums"
+                  :class="freeToSpendAmount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'"
+                >
+                  {{ formatCurrency(freeToSpendAmount) }}
+                </strong>
+              </div>
+            </div>
+            <div class="flex items-center justify-between border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+              <span>Guardado em CDBs próprios</span>
+              <strong class="tabular-nums text-foreground">{{ formatCurrency(mySavedBalance) }}</strong>
+            </div>
+          </div>
+
+          <!-- Coluna 2: Par -->
+          <div class="rounded-xl border border-border bg-background p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-border/60 pb-2">
+              <span class="text-xs font-bold text-foreground">{{ partnerOverview.name }}</span>
+              <Badge variant="secondary" class="text-[10px] px-1.5 py-0">Seu par</Badge>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Renda no mês</span>
+                <strong class="font-semibold tabular-nums text-foreground">{{ formatCurrency(partnerOverview.monthlyIncome) }}</strong>
+              </div>
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Contas (+ 50% casal)</span>
+                <strong class="font-semibold tabular-nums text-foreground">{{ formatCurrency(partnerOverview.totalBillsShare) }}</strong>
+              </div>
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Quero guardar</span>
+                <strong class="font-semibold tabular-nums text-primary">{{ formatCurrency(partnerOverview.savingsGoal) }}</strong>
+              </div>
+              <div>
+                <span class="text-[11px] text-muted-foreground block">Livre no mês</span>
+                <strong
+                  class="font-bold tabular-nums"
+                  :class="partnerOverview.freeBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'"
+                >
+                  {{ formatCurrency(partnerOverview.freeBalance) }}
+                </strong>
+              </div>
+            </div>
+            <div class="flex items-center justify-between border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+              <span>Guardado em CDBs próprios</span>
+              <strong class="tabular-nums text-foreground">{{ formatCurrency(partnerOverview.savedInAccounts) }}</strong>
+            </div>
+          </div>
+        </div>
+      </CardContent>
     </Card>
 
     <!-- Banner de Resumo quando o mês já foi conferido -->
@@ -807,11 +1022,20 @@ async function handleRemovePending(item: DashboardPendingItem) {
         </button>
       </div>
 
-      <div v-if="sharedTotalBills > 0" class="flex items-center gap-2 text-xs text-muted-foreground">
-        <Users class="h-3.5 w-3.5 text-primary" />
-        <span>
-          Total do casal: <strong class="text-foreground">{{ formatCurrency(sharedTotalBills) }}</strong>
-          ({{ formatCurrency(sharedTotalBills / 2) }} / 50% pra cada)
+      <div v-if="sharedTotalBills > 0" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span class="inline-flex items-center gap-1.5">
+          <Users class="h-3.5 w-3.5 text-primary" />
+          <span>
+            Contas do casal: <strong class="tabular-nums text-foreground">{{ formatCurrency(sharedTotalBills) }}</strong>
+            ({{ formatCurrency(sharedTotalBills / 2) }} pra cada)
+          </span>
+        </span>
+        <span
+          v-if="hasPartner && (sharedPaidByMe > 0 || sharedPaidByPartner > 0)"
+          class="rounded-lg border border-border bg-card px-2.5 py-0.5 text-[11px] tabular-nums"
+        >
+          Pago por {{ myShortName }}: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(sharedPaidByMe) }}</strong>
+          · Pago por {{ partnerShortName }}: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(sharedPaidByPartner) }}</strong>
         </span>
       </div>
     </div>
@@ -1042,6 +1266,13 @@ async function handleRemovePending(item: DashboardPendingItem) {
                     >
                       <Users class="h-2.5 w-2.5 text-primary" />
                       Casal
+                    </Badge>
+                    <Badge
+                      v-if="item.isShared && payerBadgeLabel(item.paidBy)"
+                      variant="secondary"
+                      class="text-[10px] px-1.5 py-0 font-medium text-emerald-700 dark:text-emerald-300"
+                    >
+                      {{ payerBadgeLabel(item.paidBy) }}
                     </Badge>
                   </div>
                   <p class="text-[11px] text-muted-foreground">
@@ -1432,9 +1663,48 @@ async function handleRemovePending(item: DashboardPendingItem) {
           </p>
         </div>
 
-        <!-- Se for o item "Quero guardar", permite somar direto em um dos CDBs / Reservas -->
+        <!-- Se a conta for compartilhada (Casal) e houver par vinculado, permite registrar quem pagou -->
         <div
-          v-if="selectedItem?.kind === 'savings' && vaultAccounts.length > 0"
+          v-if="selectedItem?.isShared && hasPartner && authStore.profile?.partner"
+          class="space-y-2"
+        >
+          <label class="text-xs font-medium text-foreground">
+            Quem pagou esta conta compartilhada?
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-colors"
+              :class="
+                selectedPayerUserId === authStore.currentUserId
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="selectedPayerUserId = authStore.currentUserId || ''"
+            >
+              <Check v-if="selectedPayerUserId === authStore.currentUserId" class="h-3.5 w-3.5 text-primary" />
+              <span>{{ myShortName }} (Você)</span>
+            </button>
+
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-colors"
+              :class="
+                selectedPayerUserId === authStore.profile.partner.id
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="selectedPayerUserId = authStore.profile.partner.id"
+            >
+              <Check v-if="selectedPayerUserId === authStore.profile.partner.id" class="h-3.5 w-3.5 text-primary" />
+              <span>{{ partnerShortName }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Se for o item "Quero guardar", permite somar direto em um dos seus CDBs / Reservas -->
+        <div
+          v-if="selectedItem?.kind === 'savings' && myVaultAccounts.length > 0"
           class="space-y-2 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3.5"
         >
           <label class="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -1446,7 +1716,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
             class="flex h-9 w-full rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">Apenas marcar como guardado (sem somar em conta)</option>
-            <option v-for="acc in vaultAccounts" :key="acc.id" :value="acc.id">
+            <option v-for="acc in myVaultAccounts" :key="acc.id" :value="acc.id">
               {{ acc.name }} (Saldo atual: {{ formatCurrency(acc.balance) }})
             </option>
           </select>

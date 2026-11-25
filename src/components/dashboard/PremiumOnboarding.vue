@@ -5,7 +5,6 @@ import { storeToRefs } from 'pinia'
 import { usersApi } from '@/api/users.api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
@@ -57,6 +56,7 @@ const { formatCurrency } = storeToRefs(dashboardStore)
 const checklistDismissed = ref(false)
 const soloConfirmed = ref(false)
 const initializedForUser = ref<string | null>(null)
+const checklistDrawerOpen = ref(false)
 
 // Estado do Tour de Boas Vindas (Bottom Drawer em 3 etapas)
 const tourOpen = ref(false)
@@ -73,7 +73,7 @@ const quickVaultOpen = ref(false)
 const vaultName = ref('Reserva de Emergência')
 const vaultBank = ref('')
 const vaultBalance = ref<number | ''>('')
-const vaultShared = ref(true)
+const vaultShared = ref(false)
 const savingVault = ref(false)
 
 // Drawer rápido para escolher Casal ou Uso Individual a partir do checklist
@@ -179,11 +179,23 @@ const completedCount = computed(() => steps.value.filter((s) => s.done).length)
 const progressPercent = computed(() => Math.round((completedCount.value / 4) * 100))
 const allStepsCompleted = computed(() => completedCount.value === 4)
 
-const showChecklistCard = computed(() => {
+const showFloatingTrigger = computed(() => {
   if (!props.ready) return false
   if (checklistDismissed.value) return false
+  if (
+    checklistDrawerOpen.value ||
+    tourOpen.value ||
+    quickVaultOpen.value ||
+    quickPartnerOpen.value
+  ) {
+    return false
+  }
   return true
 })
+
+const showPulseBadge = computed(
+  () => completedCount.value === 0 && !hasSeenWelcome(),
+)
 
 const tourEstimatedFree = computed(() => {
   const inc = Number(tourIncome.value) || 0
@@ -191,7 +203,13 @@ const tourEstimatedFree = computed(() => {
   return Math.max(inc - sav, 0)
 })
 
+function openChecklistDrawer() {
+  markWelcomeSeen()
+  checklistDrawerOpen.value = true
+}
+
 function openWelcomeTour(startStep: 1 | 2 | 3 = 1) {
+  checklistDrawerOpen.value = false
   tourStep.value = startStep
   tourIncome.value = props.configuredIncome > 0 ? props.configuredIncome : ''
   tourSavings.value = props.configuredSavings > 0 ? props.configuredSavings : ''
@@ -216,6 +234,7 @@ async function persistUserOnboardingFlags(payload: {
 function dismissChecklist() {
   const uid = authStore.currentUserId
   checklistDismissed.value = true
+  checklistDrawerOpen.value = false
   if (uid && typeof window !== 'undefined') {
     localStorage.setItem(storageKey('dismissed', uid), '1')
   }
@@ -309,6 +328,7 @@ async function handleFinishTour() {
 }
 
 function handleStepClick(stepId: string) {
+  checklistDrawerOpen.value = false
   if (stepId === 'income') {
     emit('open-plan')
   } else if (stepId === 'bills') {
@@ -317,7 +337,7 @@ function handleStepClick(stepId: string) {
     vaultName.value = 'Reserva de Emergência'
     vaultBank.value = ''
     vaultBalance.value = ''
-    vaultShared.value = true
+    vaultShared.value = false
     quickVaultOpen.value = true
   } else if (stepId === 'partner') {
     quickPartnerEmail.value = ''
@@ -399,23 +419,10 @@ function maybeTriggerInitialOnboarding() {
   initializedForUser.value = uid
   syncUserFlags()
 
-  const isBrandNewWorkspace =
-    props.configuredIncome === 0 &&
-    props.totalBillsCount === 0 &&
-    vaultAccounts.value.length === 0
-
-  // Se a conta já possui dados completos de uso anterior, oculta o checklist inicial automaticamente
+  // Se a conta já possui dados completos de uso anterior, oculta o botão flutuante automaticamente
   if (props.configuredIncome > 0 && props.totalBillsCount > 0 && vaultAccounts.value.length > 0 && hasSeenWelcome()) {
     if (hasPartnerLinked.value || soloConfirmed.value) {
       checklistDismissed.value = true
-    }
-  }
-
-  if (!hasSeenWelcome()) {
-    if (isBrandNewWorkspace) {
-      openWelcomeTour(1)
-    } else {
-      markWelcomeSeen()
     }
   }
 }
@@ -431,74 +438,108 @@ watch(
 </script>
 
 <template>
-  <!-- CARD DE PRIMEIROS PASSOS NO TOPO DA HOME -->
-  <Card
-    v-if="showChecklistCard"
-    class="overflow-hidden border-primary/30 bg-gradient-to-br from-primary/5 via-card to-card shadow-2xs"
+  <!-- BOTÃO FLUTUANTE COMPACTO / NOTIFICAÇÃO DE PRIMEIROS PASSOS -->
+  <div
+    v-if="showFloatingTrigger"
+    class="fixed right-4 bottom-[4.65rem] md:bottom-6 md:right-6 z-30 flex items-center gap-1 rounded-full border border-primary/35 bg-card/95 p-1 pl-3 shadow-lg backdrop-blur transition-all hover:border-primary"
   >
-    <CardContent class="p-4 sm:p-5 space-y-3.5">
-      <div class="flex flex-wrap items-start justify-between gap-2">
-        <div class="space-y-0.5">
-          <div class="flex flex-wrap items-center gap-2">
-            <Badge variant="warning" class="gap-1 text-[10px] px-2 py-0">
-              <Crown class="h-2.5 w-2.5" />
-              Premium ativo
-            </Badge>
-            <h2 class="text-sm font-bold text-foreground">
-              {{ allStepsCompleted ? 'Tudo pronto para dominar o mês!' : 'Primeiros passos no DuoPact' }}
-            </h2>
-            <span class="text-xs font-semibold tabular-nums text-primary">
-              {{ completedCount }} de 4
-            </span>
-          </div>
-          <p class="text-xs text-muted-foreground">
-            {{
-              allStepsCompleted
-                ? 'Você concluiu toda a configuração essencial. Pode ocultar este guia quando quiser.'
-                : 'Toque em cada etapa abaixo para deixar seu painel funcionando em menos de 2 minutos.'
-            }}
-          </p>
-        </div>
+    <button
+      type="button"
+      class="flex items-center gap-2 py-1 pr-1.5 text-left text-xs font-semibold text-foreground transition-colors hover:text-primary"
+      @click="openChecklistDrawer"
+    >
+      <span class="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+        <span
+          v-if="showPulseBadge"
+          class="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/40"
+        />
+        <CheckCircle2 v-if="allStepsCompleted" class="relative h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+        <Crown v-else class="relative h-3 w-3" />
+      </span>
 
-        <div class="flex items-center gap-1 shrink-0">
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            class="gap-1 text-xs text-muted-foreground hover:text-primary"
-            @click="openWelcomeTour(1)"
-          >
-            <PlayCircle class="h-3.5 w-3.5" />
-            <span>Ver tour</span>
-          </Button>
-          <button
-            type="button"
-            class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Ocultar primeiros passos"
-            aria-label="Ocultar primeiros passos"
-            @click="dismissChecklist"
-          >
-            <X class="h-4 w-4" />
-          </button>
-        </div>
+      <span class="whitespace-nowrap">
+        {{ allStepsCompleted ? 'Tudo configurado!' : 'Primeiros passos' }}
+      </span>
+
+      <Badge
+        :variant="allStepsCompleted ? 'success' : 'secondary'"
+        class="px-1.5 py-0 text-[10px] font-bold"
+      >
+        {{ completedCount }}/4
+      </Badge>
+    </button>
+
+    <button
+      type="button"
+      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      title="Dispensar primeiros passos"
+      aria-label="Dispensar primeiros passos"
+      @click="dismissChecklist"
+    >
+      <X class="h-3.5 w-3.5" />
+    </button>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- BOTTOM DRAWER: CHECKLIST INTERATIVO DE PRIMEIROS PASSOS      -->
+  <!-- ============================================================ -->
+  <Sheet
+    v-model:open="checklistDrawerOpen"
+    :title="allStepsCompleted ? 'Tudo pronto para dominar o mês!' : 'Primeiros passos no DuoPact'"
+    :description="
+      allStepsCompleted
+        ? 'Você concluiu toda a configuração essencial da sua conta.'
+        : 'Toque em uma etapa abaixo para configurar em menos de 2 minutos ou veja o tour rápido.'
+    "
+  >
+    <div class="space-y-4">
+      <div class="flex items-center justify-between gap-2 text-xs">
+        <span class="font-medium text-muted-foreground">
+          Progresso da configuração
+        </span>
+        <strong class="font-bold text-primary">
+          {{ completedCount }} de 4 concluídos ({{ progressPercent }}%)
+        </strong>
       </div>
 
       <Progress
         :model-value="progressPercent"
-        class="h-1.5"
+        class="h-2"
         indicator-class="bg-primary"
       />
 
+      <!-- Atalho destacado para o Tour rápido de 3 etapas -->
+      <button
+        type="button"
+        class="flex w-full items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-left transition-colors hover:bg-primary/10"
+        @click="openWelcomeTour(1)"
+      >
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <PlayCircle class="h-4 w-4" />
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs font-bold text-foreground">
+              Tour rápido de boas vindas (30s)
+            </p>
+            <p class="text-[11px] text-muted-foreground truncate">
+              Entenda a lógica Renda, Contas, Reserva e Sobra Livre
+            </p>
+          </div>
+        </div>
+        <ChevronRight class="h-4 w-4 shrink-0 text-primary" />
+      </button>
+
       <!-- Lista interativa dos 4 passos -->
-      <div v-if="!allStepsCompleted" class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div class="space-y-2">
         <button
           v-for="step in steps"
           :key="step.id"
           type="button"
-          class="group flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-all"
+          class="group flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-all"
           :class="
             step.done
-              ? 'border-emerald-500/25 bg-emerald-500/5 opacity-80 hover:opacity-100'
+              ? 'border-emerald-500/25 bg-emerald-500/5 opacity-85 hover:opacity-100'
               : 'border-border bg-background hover:border-primary/40 hover:bg-muted/30'
           "
           @click="handleStepClick(step.id)"
@@ -536,17 +577,28 @@ watch(
         </button>
       </div>
 
-      <div v-else class="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5">
-        <div class="flex items-center gap-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-          <CheckCircle2 class="h-4 w-4 shrink-0" />
-          <span>Configuração concluída com sucesso!</span>
-        </div>
-        <Button size="xs" variant="secondary" @click="dismissChecklist">
-          Concluir e fechar
+      <div class="flex items-center justify-between gap-2 border-t border-border pt-4">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          class="text-xs text-muted-foreground hover:text-foreground"
+          @click="dismissChecklist"
+        >
+          Não mostrar novamente
+        </Button>
+
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          @click="checklistDrawerOpen = false"
+        >
+          Fechar
         </Button>
       </div>
-    </CardContent>
-  </Card>
+    </div>
+  </Sheet>
 
   <!-- ============================================================ -->
   <!-- BOTTOM DRAWER: TOUR DE BOAS VINDAS AO DUOPACT PREMIUM (3 ETAPAS) -->

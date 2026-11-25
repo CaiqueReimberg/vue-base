@@ -6,6 +6,7 @@ import { recurringApi } from '@/api/recurring.api'
 import type { MonthlyCommitmentResponse } from '@/types/dashboard-commitment'
 import { dashboardApi, type MonthlyPlanResponse } from '@/api/dashboard.api'
 import type { Budget } from '@/types/budget'
+import type { PublicOwner } from '@/types/owner'
 import type { DebtCategory, Transaction, TransactionType } from '@/types/transaction'
 import { shiftReferenceMonth } from '@/utils/month'
 
@@ -66,6 +67,7 @@ export interface DashboardPendingItem {
   statusLabel: string
   canMarkPaid: boolean
   isShared?: boolean
+  owner?: PublicOwner | null
   linkTo?: string
 }
 
@@ -77,6 +79,8 @@ export interface DashboardPaidItem {
   subtitle: string
   amount: number
   paidDateLabel: string
+  paidBy?: PublicOwner | null
+  owner?: PublicOwner | null
   canUnmarkPaid: boolean
   isShared?: boolean
 }
@@ -378,6 +382,7 @@ export const useDashboardStore = defineStore('dashboard', {
           statusLabel: urgency.label,
           canMarkPaid: true,
           isShared: Boolean(r.isShared),
+          owner: r.owner ?? null,
         })
       }
 
@@ -429,6 +434,7 @@ export const useDashboardStore = defineStore('dashboard', {
             statusLabel: dueDay ? urgency.label : 'Aberto',
             canMarkPaid: true,
             isShared: Boolean(tx.isShared),
+            owner: tx.owner ?? null,
           })
         }
       }
@@ -478,6 +484,8 @@ export const useDashboardStore = defineStore('dashboard', {
           subtitle: r.category ? `Conta fixa · ${r.category}` : 'Conta fixa mensal',
           amount: r.value,
           paidDateLabel: paidLabel,
+          paidBy: r.paidBy ?? null,
+          owner: r.owner ?? null,
           canUnmarkPaid: true,
           isShared: Boolean(r.isShared),
         })
@@ -526,6 +534,8 @@ export const useDashboardStore = defineStore('dashboard', {
           subtitle: `${transactionSourceLabel(tx)}${parcelBadge}${tx.category?.name ? ` · ${tx.category.name}` : ''}`,
           amount: tx.amount,
           paidDateLabel: paidLabel,
+          paidBy: tx.paidBy ?? null,
+          owner: tx.owner ?? null,
           canUnmarkPaid: tx.kind === 'debt',
           isShared: Boolean(tx.isShared),
         })
@@ -713,7 +723,11 @@ export const useDashboardStore = defineStore('dashboard', {
       await this.fetchSummary(nextYm)
     },
 
-    async markPendingItemAsPaid(item: DashboardPendingItem, customAmount?: number) {
+    async markPendingItemAsPaid(
+      item: DashboardPendingItem,
+      customAmount?: number,
+      paidByUserId?: string,
+    ) {
       if (this.actionLoadingIds.includes(item.id)) return
       this.actionLoadingIds.push(item.id)
       try {
@@ -730,12 +744,18 @@ export const useDashboardStore = defineStore('dashboard', {
           return
         }
         if (item.kind === 'recurring') {
-          await recurringApi.markAsPaid(item.referenceId, this.referenceMonth, finalAmount)
+          await recurringApi.markAsPaid(
+            item.referenceId,
+            this.referenceMonth,
+            finalAmount,
+            paidByUserId,
+          )
         } else if (item.kind === 'transaction') {
           await transactionsApi.update(item.referenceId, {
             status: 'cleared',
             paidAt: new Date().toISOString(),
             paymentMonth: this.referenceMonth,
+            ...(paidByUserId ? { paidByUserId } : {}),
             ...(finalAmount !== undefined ? { amount: finalAmount } : {}),
           })
         }
@@ -870,6 +890,9 @@ export const useDashboardStore = defineStore('dashboard', {
               installmentNumber: debtState.installmentNumber,
               status: debtState.isPaidInMonth ? ('cleared' as const) : ('pending' as const),
               paidAt: debtState.isPaidInMonth ? tx.paidAt ?? new Date().toISOString() : null,
+              paidBy: debtState.isPaidInMonth
+                ? tx.paidByByMonth?.[referenceMonth] ?? tx.paidBy ?? null
+                : null,
             }
           })
         const monthlyIncomes = incomeTransactions.filter((tx) =>

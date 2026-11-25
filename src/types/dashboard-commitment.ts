@@ -1,3 +1,5 @@
+import type { PublicOwner } from './owner'
+
 export interface RecurringBillCommitmentItem {
   id: string
   name: string
@@ -5,6 +7,9 @@ export interface RecurringBillCommitmentItem {
   dueDay: number | null
   paid: boolean
   paidAt?: string | null
+  paidBy?: PublicOwner | null
+  owner?: PublicOwner | null
+  ownerId?: string
   category?: string | null
   isShared?: boolean
 }
@@ -18,12 +23,28 @@ export interface CardInvoiceCommitmentItem {
   paid: boolean
 }
 
+export interface PartnerMonthlyOverview {
+  userId: string
+  name: string
+  email: string
+  monthlyIncome: number
+  individualBillsTotal: number
+  sharedBillsHalf: number
+  totalBillsShare: number
+  savingsGoal: number
+  savingsPaid: boolean
+  freeBalance: number
+  savedInAccounts: number
+}
+
 export interface MonthlyCommitmentResponse {
   month: string
   totalCommitted: number
   totalPaid: number
   remainingToPay: number
   freeBalance: number
+  shareOverview?: boolean
+  partnerOverview?: PartnerMonthlyOverview | null
   breakdown: {
     recurringBills: {
       total: number
@@ -47,6 +68,7 @@ export interface AgendaEvent {
   subtitle?: string | null
   value: number | null
   paid: boolean
+  paidBy?: PublicOwner | null
   isShared?: boolean
   referenceId: string
   ownerId?: string

@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { getRouterParam, readBody } from 'h3'
 import { db } from '../../database'
 import { debtPayments, transactions } from '../../database/schema'
 import { badRequest, notFound, requireAuthUser } from '../../utils/auth'
-import { assertUserBelongsToFamily } from '../../utils/household'
+import {
+  assertPersonInSameHousehold,
+  assertUserBelongsToFamily,
+  getHouseholdVisibility,
+} from '../../utils/household'
 import {
   findOneLinkableAccount,
   findOneLinkableCard,
@@ -28,6 +32,7 @@ export default defineEventHandler(async (event) => {
     occurredAt?: string
     dueDate?: string | null
     paidAt?: string | null
+    paidByUserId?: string | null
     referenceMonth?: string | null
     paymentMonth?: string | null
     status?: string
@@ -37,14 +42,20 @@ export default defineEventHandler(async (event) => {
     notes?: string | null
   }>(event)
 
+  const visibility = await getHouseholdVisibility(userId)
   const [tx] = await db
     .select()
     .from(transactions)
-    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .where(and(eq(transactions.id, id), inArray(transactions.userId, visibility.memberIds)))
     .limit(1)
 
-  if (!tx) {
+  if (!tx || (tx.userId !== userId && !tx.isShared)) {
     notFound('Transação não encontrada')
+  }
+
+  const payerId = body.paidByUserId?.trim() || userId
+  if (payerId !== userId) {
+    await assertPersonInSameHousehold(userId, payerId)
   }
 
   const hasAccountInPayload = body.accountId !== undefined
@@ -170,9 +181,14 @@ export default defineEventHandler(async (event) => {
           transactionId: id,
           referenceMonth: targetPaymentMonth,
           paidAt: paidIso,
-          userId,
+          userId: payerId,
           createdAt: paidIso,
         })
+      } else if (body.paidByUserId && existingPayment.userId !== payerId) {
+        await db
+          .update(debtPayments)
+          .set({ userId: payerId })
+          .where(eq(debtPayments.id, existingPayment.id))
       }
     } else {
       await db
@@ -187,8 +203,16 @@ export default defineEventHandler(async (event) => {
   } else {
     if (body.paidAt !== undefined) {
       updates.paidAt = body.paidAt ? new Date(body.paidAt).toISOString() : null
+      updates.paidByUserId = body.paidAt ? payerId : null
     }
-    if (body.status !== undefined) updates.status = body.status
+    if (body.status !== undefined) {
+      updates.status = body.status
+      if (body.status === 'cleared' || body.status === 'paid') {
+        updates.paidByUserId = payerId
+      } else if (body.status === 'pending') {
+        updates.paidByUserId = null
+      }
+    }
   }
 
   if (body.installmentNumber !== undefined) updates.installmentNumber = body.installmentNumber

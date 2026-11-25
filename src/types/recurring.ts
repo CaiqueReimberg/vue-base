@@ -13,6 +13,8 @@ export interface RecurringCreateInput {
   amount: number
   description?: string
   startDate: string
+  referenceMonth?: string
+  isCardInvoice?: boolean
   endDate?: string
   frequency?: RecurringFrequency
   dueDay?: number
@@ -27,6 +29,7 @@ export interface RecurringMonthlyItem {
   amount: number
   baseAmount?: number
   isMonthOverride?: boolean
+  isShared?: boolean
   dueDay: number | null
   kind: RecurringKind
   transactionType: RecurringFlowType

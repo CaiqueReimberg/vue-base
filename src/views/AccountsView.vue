@@ -54,32 +54,42 @@ const QUICK_AMOUNTS = [200, 500, 1000, 2000, 5000]
 // Filtro: Todas | Casal | Individuais
 const scopeFilter = ref<'all' | 'shared' | 'individual'>('all')
 
+// Separação clara: suas contas próprias vs contas que o par marcou para compartilhar visualização
+const myAccounts = computed(() =>
+  accounts.value.filter((a) => isMyResource(a.owner ?? null, currentUserId.value)),
+)
+const partnerSharedAccounts = computed(() =>
+  accounts.value.filter((a) => !isMyResource(a.owner ?? null, currentUserId.value)),
+)
+
 const filteredAccounts = computed(() => {
   const list = [...accounts.value].sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0))
   if (scopeFilter.value === 'shared') {
     return list.filter((a) => Boolean(a.shareWithPartner))
   }
   if (scopeFilter.value === 'individual') {
-    return list.filter((a) => !a.shareWithPartner)
+    return list.filter((a) => isMyResource(a.owner ?? null, currentUserId.value) && !a.shareWithPartner)
   }
   return list
 })
 
-const totalFilteredBalance = computed(() =>
-  filteredAccounts.value.reduce((sum, a) => sum + Number(a.balance || 0), 0),
+// Total principal soma APENAS as suas contas (sem misturar o patrimônio do par)
+const totalMyBalance = computed(() =>
+  myAccounts.value.reduce((sum, a) => sum + Number(a.balance || 0), 0),
 )
 
-const totalSharedBalance = computed(() =>
-  accounts.value
-    .filter((a) => Boolean(a.shareWithPartner))
-    .reduce((sum, a) => sum + Number(a.balance || 0), 0),
+const totalPartnerSharedBalance = computed(() =>
+  partnerSharedAccounts.value.reduce((sum, a) => sum + Number(a.balance || 0), 0),
 )
 
-const topAccount = computed(() => filteredAccounts.value[0] ?? null)
+const topAccount = computed(() => {
+  const sorted = [...myAccounts.value].sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0))
+  return sorted[0] ?? null
+})
 
 function sharePercent(balance: number): number {
-  if (totalFilteredBalance.value <= 0 || balance <= 0) return 0
-  return Math.round((balance / totalFilteredBalance.value) * 100)
+  if (totalMyBalance.value <= 0 || balance <= 0) return 0
+  return Math.round((balance / totalMyBalance.value) * 100)
 }
 
 function getAccountIcon(type: AccountType) {
@@ -102,7 +112,7 @@ const editingAccount = ref<Account | null>(null)
 const formName = ref('')
 const formType = ref<AccountType>('investment')
 const formBalance = ref<number | ''>('')
-const formShared = ref(true)
+const formShared = ref(false)
 const submittingForm = ref(false)
 
 // 2. Drawer Rápido: + Guardar (Aportar) ou − Retirar (Resgatar)
@@ -142,7 +152,7 @@ function openCreateDrawer() {
   formName.value = ''
   formType.value = 'investment'
   formBalance.value = ''
-  formShared.value = true
+  formShared.value = false
   formDrawerOpen.value = true
 }
 
@@ -310,48 +320,52 @@ async function confirmRemove() {
 
         <template v-else>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
-            <!-- Total Guardado -->
+            <!-- Seu Patrimônio Guardado (somente suas contas) -->
             <div>
               <div class="flex items-center gap-1.5">
                 <PiggyBank class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 <span class="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                  Total guardado
+                  Seu patrimônio guardado
                 </span>
               </div>
               <div class="mt-1.5 text-3xl font-extrabold tracking-tight tabular-nums text-emerald-700 dark:text-emerald-300">
-                {{ formatCurrency(totalFilteredBalance) }}
+                {{ formatCurrency(totalMyBalance) }}
               </div>
               <span class="text-xs text-muted-foreground">
-                Somando {{ filteredAccounts.length }} {{ filteredAccounts.length === 1 ? 'conta/CDB' : 'contas/CDBs' }}
+                Somando {{ myAccounts.length }} {{ myAccounts.length === 1 ? 'reserva sua' : 'reservas suas' }}
               </span>
             </div>
 
             <!-- Maior Reserva -->
             <div class="sm:pl-6">
               <span class="text-xs font-medium text-muted-foreground">
-                Maior posição atual
+                Sua maior posição atual
               </span>
               <div class="mt-1.5 text-lg font-bold text-foreground truncate">
                 {{ topAccount ? topAccount.name : 'Nenhuma' }}
               </div>
               <span class="text-xs text-muted-foreground">
                 <template v-if="topAccount">
-                  {{ formatCurrency(topAccount.balance) }} ({{ sharePercent(topAccount.balance) }}% do total)
+                  {{ formatCurrency(topAccount.balance) }} ({{ sharePercent(topAccount.balance) }}% do seu total)
                 </template>
                 <template v-else>Nenhuma conta cadastrada</template>
               </span>
             </div>
 
-            <!-- Reserva do Casal -->
+            <!-- Reservas do Par (separadas, sem somar ao seu saldo) -->
             <div class="sm:pl-6">
               <span class="text-xs font-medium text-muted-foreground">
-                Compartilhado com o par
+                Reservas visíveis do par (separado)
               </span>
               <div class="mt-1.5 text-lg font-bold tabular-nums text-foreground">
-                {{ formatCurrency(totalSharedBalance) }}
+                {{ formatCurrency(totalPartnerSharedBalance) }}
               </div>
               <span class="text-xs text-muted-foreground">
-                {{ formatCurrency(totalSharedBalance / 2) }} (50% de cada)
+                {{
+                  partnerSharedAccounts.length > 0
+                    ? `${partnerSharedAccounts.length} reserva(s) compartilhada(s) pelo par`
+                    : 'Nenhuma reserva compartilhada pelo par'
+                }}
               </span>
             </div>
           </div>

@@ -5,7 +5,7 @@ import { transactionsApi } from '@/api/transactions.api'
 import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { DebtCategory, Transaction } from '@/types/transaction'
-import { ownerBadgeLabel, isMyResource } from '@/utils/owner'
+import { ownerBadgeLabel, isMyResource, payerBadgeLabel } from '@/utils/owner'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -101,7 +101,7 @@ const installmentTotal = ref<number | string>(12)
 const debtCategory = ref<DebtCategory>('car')
 const occurredAt = ref(new Date().toISOString().slice(0, 10))
 const referenceMonth = ref(currentReferenceMonth())
-const isShared = ref(true)
+const isShared = ref(false)
 const notes = ref('')
 
 const removeOpen = ref(false)
@@ -217,7 +217,7 @@ function openCreate() {
   debtCategory.value = 'car'
   occurredAt.value = new Date().toISOString().slice(0, 10)
   referenceMonth.value = filterReferenceMonth.value || currentReferenceMonth()
-  isShared.value = true
+  isShared.value = false
   notes.value = ''
   formError.value = ''
   editLoading.value = false
@@ -333,12 +333,13 @@ async function togglePaidStatus(t: Transaction) {
     ? filterReferenceMonth.value || currentReferenceMonth()
     : currentReferenceMonth()
   try {
-    await transactionsApi.update(t.id, {
+    const updated = await transactionsApi.update(t.id, {
       status: nextStatus,
       paidAt: nextStatus === 'cleared' ? new Date().toISOString() : undefined,
       paymentMonth: activeYm,
     })
     t.status = nextStatus
+    t.paidBy = updated.paidBy ?? null
     toastStore.success(
       nextStatus === 'cleared' ? 'Parcela marcada como paga!' : 'Parcela voltou para pendente.',
     )
@@ -857,7 +858,13 @@ async function confirmRemove() {
                 >
                   <CheckCircle2 v-if="isDebtPaid(t)" class="h-3 w-3" />
                   <Clock v-else class="h-3 w-3" />
-                  {{ isDebtPaid(t) ? 'Paga no mês' : 'Pendente' }}
+                  {{
+                    isDebtPaid(t)
+                      ? t.isShared && payerBadgeLabel(t.paidBy)
+                        ? payerBadgeLabel(t.paidBy)
+                        : 'Paga no mês'
+                      : 'Pendente'
+                  }}
                 </span>
               </div>
 

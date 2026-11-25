@@ -12,7 +12,7 @@ export interface UserProfile {
   features?: Record<string, boolean>
   createdAt: string
   updatedAt: string
-  family: { id: string; name: string } | null
+  family: { id: string; name: string; shareOverview?: boolean } | null
   partner: { id: string; email: string; name: string | null } | null
 }
 
@@ -73,6 +73,13 @@ export const usersApi = {
 
   unlinkPartner(): Promise<UserProfile> {
     return request<UserProfile>('/users/me/partner', { method: 'DELETE' })
+  },
+
+  updatePartnerSettings(payload: { shareOverview: boolean }): Promise<UserProfile> {
+    return request<UserProfile>('/users/me/partner', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
   },
 
   listAdminUsers(params?: {

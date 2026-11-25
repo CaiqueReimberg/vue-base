@@ -137,7 +137,7 @@ export async function getUserProfileResponse(userId: string) {
   const user = await getUserOrThrow(userId)
   const hasPremiumAccess = Boolean(user.isPremium || user.isAdmin)
 
-  let familyObj: { id: string; name: string } | null = null
+  let familyObj: { id: string; name: string; shareOverview: boolean } | null = null
   let partnerObj: { id: string; email: string; name: string | null } | null = null
 
   if (hasPremiumAccess && user.familyId) {
@@ -147,7 +147,11 @@ export async function getUserProfileResponse(userId: string) {
       .where(eq(families.id, user.familyId))
       .limit(1)
     if (fam) {
-      familyObj = { id: fam.id, name: fam.name }
+      familyObj = {
+        id: fam.id,
+        name: fam.name,
+        shareOverview: Boolean(fam.shareOverview),
+      }
       const members = await db
         .select({ id: users.id, email: users.email, name: users.name })
         .from(users)

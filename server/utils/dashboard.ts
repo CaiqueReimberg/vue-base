@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '../database'
 import {
+  accounts,
   cards,
   categories,
   debtPayments,
+  families,
   monthlyPlans,
   recurringMonthOverrides,
   recurringPayments,
@@ -20,8 +22,13 @@ import {
   roundMoney,
   transactionInBillingCycle,
 } from './billing'
-import { getHouseholdVisibility, getSystemFeatureFlagsMap } from './household'
+import {
+  getHouseholdVisibility,
+  getPublicUsersMap,
+  getSystemFeatureFlagsMap,
+} from './household'
 import { findVisibleActiveRecurringsForMonth } from './recurring'
+import { mapAccountsWithEffectiveBalance } from './resources'
 import { getDebtStartMonth, getMonthsDiff, isDebtActiveInMonth } from './transactions'
 
 async function buildRecurringBillItems(userId: string, referenceMonth: string) {
@@ -57,6 +64,11 @@ async function buildRecurringBillItems(userId: string, referenceMonth: string) {
       : db.select().from(categories).where(inArray(categories.id, catIds)),
   ])
 
+  const usersMap = await getPublicUsersMap([
+    ...recurrings.map((r) => r.userId),
+    ...payments.map((p) => p.userId),
+  ])
+
   const paymentByRecurring = new Map(payments.map((p) => [p.recurringId, p]))
   const overrideByRecurring = new Map(overrides.map((o) => [o.recurringId, Number(o.amount)]))
   const catMap = new Map(catRows.map((c) => [c.id, c.name]))
@@ -76,6 +88,8 @@ async function buildRecurringBillItems(userId: string, referenceMonth: string) {
         paid: Boolean(payment),
         paidAt: payment ? new Date(payment.paidAt).toISOString() : null,
         paidByUserId: payment?.userId ?? null,
+        paidBy: payment ? usersMap.get(payment.userId) ?? null : null,
+        owner: usersMap.get(r.userId) ?? null,
         category: r.categoryId ? catMap.get(r.categoryId) ?? null : null,
         isShared: Boolean(r.isShared),
         ownerId: r.userId,
@@ -254,13 +268,112 @@ async function sumMonthlyIncome(userId: string, referenceMonth: string) {
     .reduce((sum, t) => sum + Number(t.amount), 0)
 }
 
+async function buildDiscriminatedPersonOverview(
+  targetUserId: string,
+  referenceMonth: string,
+  hasPartner: boolean,
+) {
+  const [plan, recItems, ownAccountsRaw, txRows, usersMap] = await Promise.all([
+    getMonthlyPlan(targetUserId, referenceMonth),
+    buildRecurringBillItems(targetUserId, referenceMonth),
+    db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.userId, targetUserId), eq(accounts.isActive, true))),
+    db
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.userId, targetUserId), eq(transactions.type, 'expense'))),
+    getPublicUsersMap([targetUserId]),
+  ])
+
+  const ownAccounts = await mapAccountsWithEffectiveBalance(ownAccountsRaw)
+  const savedInAccounts = roundMoney(
+    ownAccounts.reduce((s, a) => s + Number(a.balance || 0), 0),
+  )
+
+  const monthStandaloneOwn = txRows.filter(
+    (t) => !t.cardId && !t.isShared && expenseBelongsToMonth(t, referenceMonth),
+  )
+
+  const ownIndividualRec = recItems
+    .filter((r) => !r.isShared && r.ownerId === targetUserId)
+    .reduce((s, r) => s + r.value, 0)
+  const ownIndividualTx = monthStandaloneOwn.reduce((s, t) => s + Number(t.amount), 0)
+  const individualBillsTotal = roundMoney(ownIndividualRec + ownIndividualTx)
+
+  // Contas compartilhadas do casal (recorrentes + dívidas compartilhadas da família)
+  const visibility = await getHouseholdVisibility(targetUserId)
+  const sharedTxRows =
+    visibility.memberIds.length > 0
+      ? await db
+          .select()
+          .from(transactions)
+          .where(
+            and(
+              inArray(transactions.userId, visibility.memberIds),
+              eq(transactions.type, 'expense'),
+              eq(transactions.isShared, true),
+            ),
+          )
+      : []
+
+  const sharedRecTotal = recItems
+    .filter((r) => r.isShared)
+    .reduce((s, r) => s + r.value, 0)
+  const sharedTxTotal = sharedTxRows
+    .filter((t) => !t.cardId && expenseBelongsToMonth(t, referenceMonth))
+    .reduce((s, t) => s + Number(t.amount), 0)
+
+  const sharedBillsTotal = roundMoney(sharedRecTotal + sharedTxTotal)
+  const sharedBillsHalf = hasPartner ? roundMoney(sharedBillsTotal / 2) : sharedBillsTotal
+  const totalBillsShare = roundMoney(individualBillsTotal + sharedBillsHalf)
+  const freeBalance = roundMoney(plan.monthlyIncome - totalBillsShare - plan.savingsGoal)
+  const person = usersMap.get(targetUserId)
+
+  return {
+    userId: targetUserId,
+    name: person?.name || person?.email?.split('@')[0] || 'Par',
+    email: person?.email || '',
+    monthlyIncome: plan.monthlyIncome,
+    individualBillsTotal,
+    sharedBillsHalf,
+    totalBillsShare,
+    savingsGoal: plan.savingsGoal,
+    savingsPaid: plan.savingsPaid,
+    freeBalance,
+    savedInAccounts,
+  }
+}
+
 export async function getMonthlyCommitment(userId: string, month?: string) {
   const referenceMonth = resolveReferenceMonth(month)
+  const visibility = await getHouseholdVisibility(userId)
+
   const [recurringItems, cardItems, monthlyIncome] = await Promise.all([
     buildRecurringBillItems(userId, referenceMonth),
     buildCardInvoiceItems(userId, referenceMonth),
     sumMonthlyIncome(userId, referenceMonth),
   ])
+
+  let shareOverview = false
+  let partnerOverview: Awaited<ReturnType<typeof buildDiscriminatedPersonOverview>> | null = null
+
+  if (visibility.familyId && visibility.partnerIds.length > 0) {
+    const [fam] = await db
+      .select({ shareOverview: families.shareOverview })
+      .from(families)
+      .where(eq(families.id, visibility.familyId))
+      .limit(1)
+    shareOverview = Boolean(fam?.shareOverview)
+    if (shareOverview) {
+      partnerOverview = await buildDiscriminatedPersonOverview(
+        visibility.partnerIds[0],
+        referenceMonth,
+        true,
+      )
+    }
+  }
 
   const recurringTotal = recurringItems.reduce((s, i) => s + i.value, 0)
   const recurringPaid = recurringItems.filter((i) => i.paid).reduce((s, i) => s + i.value, 0)
@@ -279,6 +392,8 @@ export async function getMonthlyCommitment(userId: string, month?: string) {
     totalPaid: roundMoney(totalPaid),
     remainingToPay: roundMoney(remainingToPay),
     freeBalance: roundMoney(freeBalance),
+    shareOverview,
+    partnerOverview,
     breakdown: {
       recurringBills: {
         total: roundMoney(recurringTotal),
@@ -334,7 +449,11 @@ export async function getAgenda(userId: string, month?: string) {
           )
       : []
 
-  const paidDebtIds = new Set(debtPaymentsInMonth.map((p) => p.transactionId))
+  const debtPaymentByTx = new Map(debtPaymentsInMonth.map((p) => [p.transactionId, p]))
+  const agendaUsersMap = await getPublicUsersMap([
+    ...activeDebts.map((d) => d.userId),
+    ...debtPaymentsInMonth.map((p) => p.userId),
+  ])
 
   const events: Array<{
     day: number | null
@@ -343,6 +462,7 @@ export async function getAgenda(userId: string, month?: string) {
     subtitle: string | null
     value: number | null
     paid: boolean
+    paidBy?: { id: string; email: string; name: string | null } | null
     isShared: boolean
     referenceId: string
     ownerId?: string
@@ -356,6 +476,7 @@ export async function getAgenda(userId: string, month?: string) {
       subtitle: bill.category ? `Conta fixa · ${bill.category}` : 'Conta fixa mensal',
       value: bill.value,
       paid: bill.paid,
+      paidBy: bill.paidBy ?? null,
       isShared: Boolean(bill.isShared),
       referenceId: bill.id,
       ownerId: bill.ownerId,
@@ -372,6 +493,7 @@ export async function getAgenda(userId: string, month?: string) {
       : debt.occurredAt
         ? new Date(debt.occurredAt).getUTCDate()
         : null
+    const debtPayment = debtPaymentByTx.get(debt.id)
 
     events.push({
       day: dueDay,
@@ -382,7 +504,8 @@ export async function getAgenda(userId: string, month?: string) {
           ? `Financiamento / Parcela ${parcelNum} de ${total}`
           : 'Financiamento / Parcela única',
       value: roundMoney(Number(debt.amount)),
-      paid: paidDebtIds.has(debt.id),
+      paid: Boolean(debtPayment),
+      paidBy: debtPayment ? agendaUsersMap.get(debtPayment.userId) ?? null : null,
       isShared: Boolean(debt.isShared),
       referenceId: debt.id,
       ownerId: debt.userId,
@@ -449,14 +572,14 @@ export async function getAgenda(userId: string, month?: string) {
 
 export async function getMonthlyPlan(userId: string, month?: string) {
   const referenceMonth = resolveReferenceMonth(month)
-  const visibility = await getHouseholdVisibility(userId)
 
+  // Renda, Meta de Guardar e Fechamento são SEMPRE individuais de cada pessoa (userId)
   const rows = await db
     .select()
     .from(monthlyPlans)
     .where(
       and(
-        inArray(monthlyPlans.userId, visibility.memberIds),
+        eq(monthlyPlans.userId, userId),
         eq(monthlyPlans.referenceMonth, referenceMonth)
       )
     )
@@ -479,11 +602,11 @@ export async function getMonthlyPlan(userId: string, month?: string) {
     }
   }
 
-  // Herda automaticamente a Renda Mensal e Meta de Guardar do último mês configurado pelo casal
+  // Herda automaticamente a Renda Mensal e Meta de Guardar do último mês configurado por ESTA pessoa
   const latestRows = await db
     .select()
     .from(monthlyPlans)
-    .where(inArray(monthlyPlans.userId, visibility.memberIds))
+    .where(eq(monthlyPlans.userId, userId))
     .orderBy(desc(monthlyPlans.referenceMonth), desc(monthlyPlans.updatedAt))
     .limit(1)
 
@@ -536,7 +659,7 @@ export async function upsertMonthlyPlan(
     .from(monthlyPlans)
     .where(
       and(
-        inArray(monthlyPlans.userId, visibility.memberIds),
+        eq(monthlyPlans.userId, userId),
         eq(monthlyPlans.referenceMonth, referenceMonth)
       )
     )
@@ -659,12 +782,13 @@ export async function getMonthlyHistory(
   const list = Array.from({ length: count }, (_, i) => shiftMonth(last, i - (count - 1)))
 
   const visibility = await getHouseholdVisibility(userId)
+  const hasPartner = visibility.partnerIds.length > 0
 
   const [allPlans, expenseRows, commitments] = await Promise.all([
     db
       .select()
       .from(monthlyPlans)
-      .where(inArray(monthlyPlans.userId, visibility.memberIds))
+      .where(eq(monthlyPlans.userId, userId))
       .orderBy(desc(monthlyPlans.referenceMonth), desc(monthlyPlans.updatedAt)),
     db
       .select()
@@ -673,7 +797,7 @@ export async function getMonthlyHistory(
         and(
           inArray(transactions.userId, visibility.memberIds),
           eq(transactions.type, 'expense'),
-          visibility.partnerIds.length > 0
+          hasPartner
             ? or(
                 eq(transactions.userId, userId),
                 and(inArray(transactions.userId, visibility.partnerIds), eq(transactions.isShared, true))
@@ -705,27 +829,39 @@ export async function getMonthlyHistory(
 
   const standalone = expenseRows.filter((t) => !t.cardId)
 
+  const shareFactor = (isShared?: boolean | null) => (hasPartner && isShared ? 0.5 : 1)
+
   const result: MonthlyHistoryEntry[] = list.map((month, idx) => {
     const exactPlan = planByMonth.get(month)
     const monthStandalone = standalone.filter((t) => expenseBelongsToMonth(t, month))
 
-    const standaloneTotal = monthStandalone.reduce((s, t) => s + Number(t.amount), 0)
+    const standaloneTotal = monthStandalone.reduce(
+      (s, t) => s + Number(t.amount) * shareFactor(t.isShared),
+      0,
+    )
     const debtsTotal = monthStandalone
       .filter((t) => t.kind === 'debt')
-      .reduce((s, t) => s + Number(t.amount), 0)
+      .reduce((s, t) => s + Number(t.amount) * shareFactor(t.isShared), 0)
 
     const standalonePaid = monthStandalone
       .filter((t) => {
         if (t.kind === 'debt') return debtPaidSet.has(`${t.id}:${month}`)
         return t.status === 'cleared' || t.status === 'paid' || Boolean(t.paidAt)
       })
-      .reduce((s, t) => s + Number(t.amount), 0)
+      .reduce((s, t) => s + Number(t.amount) * shareFactor(t.isShared), 0)
 
     const commitment = commitments[idx]
-    const recurringTotal = roundMoney(commitment.breakdown.recurringBills.total)
+    const recItems = commitment.breakdown.recurringBills.items
+    const recurringTotal = roundMoney(
+      recItems.reduce((s, r) => s + r.value * shareFactor(r.isShared), 0),
+    )
+    const recurringPaid = roundMoney(
+      recItems.filter((r) => r.paid).reduce((s, r) => s + r.value * shareFactor(r.isShared), 0),
+    )
     const cardsTotal = roundMoney(commitment.breakdown.cardInvoices.total)
-    const bills = roundMoney(commitment.totalCommitted + standaloneTotal)
-    const billsPaid = roundMoney(commitment.totalPaid + standalonePaid)
+    const cardsPaid = roundMoney(commitment.breakdown.cardInvoices.paid)
+    const bills = roundMoney(recurringTotal + cardsTotal + standaloneTotal)
+    const billsPaid = roundMoney(recurringPaid + cardsPaid + standalonePaid)
     const billsPending = roundMoney(Math.max(bills - billsPaid, 0))
 
     // Se o mês tem contas ativas mas ainda não teve um monthly_plan salvo diretamente nele,

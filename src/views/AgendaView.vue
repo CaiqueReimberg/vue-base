@@ -11,8 +11,10 @@ import { CurrencyInput } from '@/components/ui/currency-input'
 import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import type { AgendaEvent } from '@/types/dashboard-commitment'
+import { payerBadgeLabel, personShortName } from '@/utils/owner'
 import {
   currentReferenceMonth,
   formatCurrency,
@@ -36,7 +38,12 @@ import {
 } from 'lucide-vue-next'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const toastStore = useToastStore()
+
+const hasPartner = computed(() => Boolean(authStore.profile?.partner))
+const myShortName = computed(() => personShortName(authStore.profile) || 'Você')
+const partnerShortName = computed(() => personShortName(authStore.profile?.partner) || 'Par')
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
@@ -222,11 +229,13 @@ const payDrawerOpen = ref(false)
 const payDrawerMode = ref<'pay' | 'edit'>('pay')
 const selectedEvent = ref<AgendaEvent | null>(null)
 const selectedEventAmount = ref<number | ''>('')
+const selectedPayerUserId = ref<string>('')
 const savingEventAction = ref(false)
 
 function openPayDrawer(ev: AgendaEvent, mode: 'pay' | 'edit') {
   selectedEvent.value = ev
   selectedEventAmount.value = ev.value ?? ''
+  selectedPayerUserId.value = authStore.currentUserId || ''
   payDrawerMode.value = mode
   payDrawerOpen.value = true
 }
@@ -244,21 +253,30 @@ async function submitPayDrawer(alsoPay = false) {
   savingEventAction.value = true
   try {
     const shouldMarkPaid = payDrawerMode.value === 'pay' || alsoPay
+    const payerId = ev.isShared && selectedPayerUserId.value ? selectedPayerUserId.value : undefined
 
     if (ev.type === 'bill_due') {
       if (shouldMarkPaid) {
-        await recurringApi.markAsPaid(ev.referenceId, referenceMonth.value, numAmount)
+        const res = await recurringApi.markAsPaid(
+          ev.referenceId,
+          referenceMonth.value,
+          numAmount,
+          payerId,
+        )
+        ev.paidBy = res.paidBy ?? null
       } else {
         await recurringApi.setMonthAmount(ev.referenceId, referenceMonth.value, numAmount)
       }
     } else if (ev.type === 'debt_due') {
       if (shouldMarkPaid) {
-        await transactionsApi.update(ev.referenceId, {
+        const updated = await transactionsApi.update(ev.referenceId, {
           status: 'cleared',
           paidAt: new Date().toISOString(),
+          paidByUserId: payerId,
           paymentMonth: referenceMonth.value,
           amount: numAmount,
         })
+        ev.paidBy = updated.paidBy ?? null
       } else {
         await transactionsApi.update(ev.referenceId, {
           amount: numAmount,
@@ -692,7 +710,17 @@ onMounted(() => loadMonth(currentReferenceMonth()))
                       >
                         <CheckCircle2 v-if="ev.paid" class="h-3 w-3" />
                         <Clock v-else class="h-3 w-3" />
-                        <span>{{ ev.paid ? 'Quitado' : isEventOverdue(ev) ? 'Em atraso' : 'Em aberto' }}</span>
+                        <span>
+                          {{
+                            ev.paid
+                              ? ev.isShared && payerBadgeLabel(ev.paidBy)
+                                ? payerBadgeLabel(ev.paidBy)
+                                : 'Quitado'
+                              : isEventOverdue(ev)
+                                ? 'Em atraso'
+                                : 'Em aberto'
+                          }}
+                        </span>
                       </div>
                     </div>
 
@@ -816,6 +844,44 @@ onMounted(() => loadMonth(currentReferenceMonth()))
               Confirme o valor exato da parcela em <strong>{{ periodText }}</strong>.
             </template>
           </p>
+        </div>
+
+        <div
+          v-if="selectedEvent?.isShared && hasPartner && authStore.profile?.partner"
+          class="space-y-2"
+        >
+          <label class="text-xs font-medium text-foreground">
+            Quem pagou esta conta compartilhada?
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-colors"
+              :class="
+                selectedPayerUserId === authStore.currentUserId
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="selectedPayerUserId = authStore.currentUserId || ''"
+            >
+              <Check v-if="selectedPayerUserId === authStore.currentUserId" class="h-3.5 w-3.5 text-primary" />
+              <span>{{ myShortName }} (Você)</span>
+            </button>
+
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-colors"
+              :class="
+                selectedPayerUserId === authStore.profile.partner.id
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="selectedPayerUserId = authStore.profile.partner.id"
+            >
+              <Check v-if="selectedPayerUserId === authStore.profile.partner.id" class="h-3.5 w-3.5 text-primary" />
+              <span>{{ partnerShortName }}</span>
+            </button>
+          </div>
         </div>
 
         <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">

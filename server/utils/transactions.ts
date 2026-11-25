@@ -55,7 +55,7 @@ export async function hydrateTransactions(
   const categoryIds = Array.from(new Set(rows.map((r) => r.categoryId).filter(Boolean) as string[]))
   const debtIds = rows.filter((r) => r.kind === 'debt').map((r) => r.id)
 
-  const [accRows, cardRows, catRows, usersMap, debtPaymentRows] = await Promise.all([
+  const [accRows, cardRows, catRows, debtPaymentRows] = await Promise.all([
     accountIds.length > 0
       ? db.select().from(accounts).where(inArray(accounts.id, accountIds))
       : Promise.resolve([]),
@@ -65,13 +65,19 @@ export async function hydrateTransactions(
     categoryIds.length > 0
       ? db.select().from(categories).where(inArray(categories.id, categoryIds))
       : Promise.resolve([]),
-    includeOwner
-      ? getPublicUsersMap(rows.map((r) => r.userId))
-      : Promise.resolve(new Map()),
     debtIds.length > 0
       ? db.select().from(debtPayments).where(inArray(debtPayments.transactionId, debtIds))
       : Promise.resolve([]),
   ])
+
+  const allReferencedUserIds = [
+    ...rows.map((r) => r.userId),
+    ...rows.map((r) => r.paidByUserId).filter(Boolean) as string[],
+    ...debtPaymentRows.map((p) => p.userId),
+  ]
+  const usersMap = includeOwner
+    ? await getPublicUsersMap(allReferencedUserIds)
+    : new Map()
 
   const accMap = new Map(accRows.map((a) => [a.id, a]))
   const cardMap = new Map(cardRows.map((c) => [c.id, c]))
@@ -87,10 +93,19 @@ export async function hydrateTransactions(
   return rows.map((r) => {
     const debtPaidList = paymentsByDebt.get(r.id) ?? []
     const paidMonths = debtPaidList.map((p) => p.referenceMonth)
+    const paidByByMonth: Record<string, { id: string; email: string; name: string | null }> = {}
+    for (const p of debtPaidList) {
+      const payer = usersMap.get(p.userId)
+      if (payer) {
+        paidByByMonth[p.referenceMonth] = payer
+      }
+    }
 
     let status = r.status
     let paidAt = r.paidAt
     let installmentNumber = r.installmentNumber
+    let paidBy =
+      r.paidByUserId ? usersMap.get(r.paidByUserId) ?? null : r.paidAt ? usersMap.get(r.userId) ?? null : null
 
     if (r.kind === 'debt') {
       const startYm = getDebtStartMonth(r)
@@ -106,6 +121,9 @@ export async function hydrateTransactions(
         const paymentInMonth = debtPaidList.find((p) => p.referenceMonth === targetMonth)
         status = paymentInMonth ? 'cleared' : 'pending'
         paidAt = paymentInMonth ? paymentInMonth.paidAt : null
+        paidBy = paymentInMonth ? usersMap.get(paymentInMonth.userId) ?? null : null
+      } else {
+        paidBy = null
       }
     }
 
@@ -114,6 +132,8 @@ export async function hydrateTransactions(
       amount: Number(r.amount),
       status,
       paidAt,
+      paidBy,
+      paidByByMonth,
       installmentNumber,
       paidMonths,
       account: r.accountId ? accMap.get(r.accountId) ?? null : null,

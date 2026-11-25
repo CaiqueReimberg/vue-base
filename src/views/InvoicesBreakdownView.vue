@@ -61,11 +61,14 @@ const referenceMonth = ref(currentReferenceMonth())
 const dueDay = ref<number>(10)
 const rawInvoiceText = ref('')
 const previewItems = ref<ParsedInvoiceItem[]>([])
-const isShared = ref(true)
+const isShared = ref(false)
 const syncToMonthlyBill = ref(true)
 const saving = ref(false)
 const analyzingAi = ref(false)
 const reanalyzingId = ref<string | null>(null)
+const savingItemKey = ref<string | null>(null)
+const savedItemKey = ref<string | null>(null)
+let savedItemTimer: ReturnType<typeof setTimeout> | null = null
 
 // Filtro de categoria na visualização detalhada
 const activeCategoryFilter = ref<string | null>(null)
@@ -323,15 +326,44 @@ async function handleReanalyzeSavedInvoice(inv: SavedInvoiceAnalysis) {
   }
 }
 
+function itemRowKey(item: DisplayInvoiceItem): string {
+  return `${item._sourceInvoiceId || activeInvoice.value?.id || 'inv'}:${item.id}`
+}
+
 async function handleItemCategoryChange(changedItem?: DisplayInvoiceItem) {
   const targetInvId = changedItem?._sourceInvoiceId || activeInvoice.value?.id
   if (!targetInvId) return
   const inv = savedInvoices.value.find((i) => i.id === targetInvId)
   if (!inv) return
+
+  const key = changedItem ? itemRowKey(changedItem) : null
+  savingItemKey.value = key
+  savedItemKey.value = null
+
   try {
-    await invoicesApi.updateItems(inv.id, inv.items)
+    const cleanItems: ParsedInvoiceItem[] = inv.items.map((it) => ({
+      id: it.id,
+      date: it.date,
+      description: it.description,
+      merchant: it.merchant,
+      amount: it.amount,
+      category: it.category,
+      installment: it.installment ?? null,
+    }))
+    await invoicesApi.updateItems(inv.id, cleanItems)
+    if (key) {
+      savedItemKey.value = key
+      if (savedItemTimer) clearTimeout(savedItemTimer)
+      savedItemTimer = setTimeout(() => {
+        if (savedItemKey.value === key) savedItemKey.value = null
+      }, 2000)
+    }
   } catch {
     toastStore.error('Não foi possível salvar a alteração de categoria.')
+  } finally {
+    if (savingItemKey.value === key) {
+      savingItemKey.value = null
+    }
   }
 }
 
@@ -393,15 +425,29 @@ async function handleSaveInvoice() {
       syncToMonthlyBill: syncToMonthlyBill.value,
       dueDay: dueDay.value,
     })
-    savedInvoices.value = [created, ...savedInvoices.value]
+    savedInvoices.value = [
+      created,
+      ...savedInvoices.value.filter((i) => i.id !== created.id),
+    ]
     selectedInvoiceId.value = created.id
     activeCategoryFilter.value = null
     importDrawerOpen.value = false
-    toastStore.success(
-      syncToMonthlyBill.value
-        ? `Fatura destrinchada e total (${formatCurrency(created.totalAmount)}) lançado nas Contas do Mês!`
-        : 'Fatura destrinchada e salva com sucesso!',
-    )
+
+    if (created.syncedBillStatus === 'already_paid') {
+      toastStore.success(
+        `Fatura destrinchada! "${created.syncedBillName ?? created.cardName}" já consta como paga neste mês.`,
+      )
+    } else if (created.syncedBillStatus === 'updated') {
+      toastStore.success(
+        `Fatura destrinchada e valor atualizado em "${created.syncedBillName ?? created.cardName}" (${formatCurrency(created.totalAmount)})!`,
+      )
+    } else if (created.syncedBillStatus === 'created') {
+      toastStore.success(
+        `Fatura destrinchada e total (${formatCurrency(created.totalAmount)}) lançado nas Contas do Mês!`,
+      )
+    } else {
+      toastStore.success('Fatura destrinchada e salva com sucesso!')
+    }
   } catch {
     toastStore.error('Erro ao salvar a fatura.')
   } finally {
@@ -764,7 +810,7 @@ async function confirmRemove() {
           <ul class="divide-y divide-border" role="list">
             <li
               v-for="item in filteredActiveItems"
-              :key="item.id"
+              :key="itemRowKey(item)"
               class="flex flex-col justify-between gap-3 px-5 py-3 hover:bg-muted/30 sm:flex-row sm:items-center"
             >
               <div class="flex items-center gap-3 min-w-0">
@@ -796,17 +842,30 @@ async function confirmRemove() {
                 </div>
               </div>
 
-              <div class="flex items-center justify-between gap-3 sm:justify-end">
-                <select
-                  v-model="item.category"
-                  class="h-7 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  title="Alterar categoria deste item"
-                  @change="handleItemCategoryChange(item)"
-                >
-                  <option v-for="cat in INVOICE_CATEGORIES" :key="cat" :value="cat">
-                    {{ cat }}
-                  </option>
-                </select>
+              <div class="flex items-center justify-between gap-2.5 sm:justify-end">
+                <div class="inline-flex items-center gap-1.5">
+                  <Check
+                    v-if="savedItemKey === itemRowKey(item)"
+                    class="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                    title="Categoria salva"
+                  />
+                  <select
+                    v-model="item.category"
+                    class="h-7 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                    :class="
+                      savedItemKey === itemRowKey(item)
+                        ? 'border-emerald-500/50 text-emerald-700 dark:text-emerald-300'
+                        : ''
+                    "
+                    :disabled="savingItemKey === itemRowKey(item)"
+                    title="Alterar categoria deste item"
+                    @change="handleItemCategoryChange(item)"
+                  >
+                    <option v-for="cat in INVOICE_CATEGORIES" :key="cat" :value="cat">
+                      {{ cat }}
+                    </option>
+                  </select>
+                </div>
 
                 <span class="w-24 text-right text-sm font-semibold tabular-nums text-foreground">
                   {{ formatCurrency(item.amount) }}

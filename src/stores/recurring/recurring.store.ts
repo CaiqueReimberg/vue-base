@@ -71,7 +71,7 @@ export const useRecurringStore = defineStore('recurring', {
       }
     },
 
-    async markAsPaid(id: string, month?: string, amount?: number) {
+    async markAsPaid(id: string, month?: string, amount?: number, paidByUserId?: string) {
       const referenceMonth = month ?? this.referenceMonth
       const item = this.items.find((i) => i.id === id)
       const prevPaid = item?.paid ?? false
@@ -89,9 +89,12 @@ export const useRecurringStore = defineStore('recurring', {
       this.togglingIds.add(id)
 
       try {
-        const res = await recurringApi.markAsPaid(id, referenceMonth, amount)
+        const res = await recurringApi.markAsPaid(id, referenceMonth, amount, paidByUserId)
         if (item) {
           item.paidAt = res.paidAt
+          if (res.paidBy !== undefined) {
+            item.paidBy = res.paidBy
+          }
         }
       } catch (e) {
         if (item) {

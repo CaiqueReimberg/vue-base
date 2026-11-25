@@ -9,10 +9,12 @@ import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useAuthStore } from '@/stores/auth/auth.store'
 import { useRecurringStore } from '@/stores/recurring/recurring.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import { recurringApi } from '@/api/recurring.api'
 import type { RecurringKind, RecurringMonthlyItem } from '@/types/recurring'
+import { payerBadgeLabel, personShortName } from '@/utils/owner'
 import {
   currentReferenceMonth,
   formatCurrency,
@@ -40,8 +42,13 @@ import {
   Zap,
 } from 'lucide-vue-next'
 
+const authStore = useAuthStore()
 const recurringStore = useRecurringStore()
 const toastStore = useToastStore()
+
+const hasPartner = computed(() => Boolean(authStore.profile?.partner))
+const myShortName = computed(() => personShortName(authStore.profile) || 'Você')
+const partnerShortName = computed(() => personShortName(authStore.profile?.partner) || 'Par')
 
 const { expenseItems, loading, referenceMonth } = storeToRefs(recurringStore)
 
@@ -68,7 +75,7 @@ const formName = ref('')
 const formAmount = ref<number | ''>('')
 const formDueDay = ref<number | ''>(10)
 const formKind = ref<RecurringKind>('fixed_bill')
-const formShared = ref(true)
+const formShared = ref(false)
 const submitting = ref(false)
 const formError = ref('')
 
@@ -163,7 +170,7 @@ function openCreate() {
   formAmount.value = ''
   formDueDay.value = 10
   formKind.value = 'fixed_bill'
-  formShared.value = true
+  formShared.value = false
   formError.value = ''
   drawerOpen.value = true
 }
@@ -174,7 +181,7 @@ function openEdit(item: RecurringMonthlyItem) {
   formAmount.value = item.amount
   formDueDay.value = item.dueDay ?? ''
   formKind.value = item.kind
-  formShared.value = true
+  formShared.value = Boolean(item.isShared)
   formError.value = ''
   drawerOpen.value = true
 }
@@ -238,11 +245,13 @@ const monthValueDrawerOpen = ref(false)
 const monthValueMode = ref<'pay' | 'edit'>('pay')
 const selectedBill = ref<RecurringMonthlyItem | null>(null)
 const selectedBillAmount = ref<number | ''>('')
+const selectedPayerUserId = ref<string>('')
 const savingMonthValue = ref(false)
 
 function openMonthValueDrawer(item: RecurringMonthlyItem, mode: 'pay' | 'edit') {
   selectedBill.value = item
   selectedBillAmount.value = item.amount
+  selectedPayerUserId.value = authStore.currentUserId || ''
   monthValueMode.value = mode
   monthValueDrawerOpen.value = true
 }
@@ -259,7 +268,12 @@ async function submitMonthValueDrawer(alsoPay = false) {
   savingMonthValue.value = true
   try {
     if (monthValueMode.value === 'pay' || alsoPay) {
-      await recurringStore.markAsPaid(item.id, month.value, numAmount)
+      await recurringStore.markAsPaid(
+        item.id,
+        month.value,
+        numAmount,
+        item.isShared && selectedPayerUserId.value ? selectedPayerUserId.value : undefined,
+      )
       toastStore.success(`${item.name} marcado como pago (${formatCurrency(numAmount)})!`)
     } else {
       await recurringStore.setMonthAmount(item.id, numAmount, month.value)
@@ -574,7 +588,9 @@ async function confirmRemove() {
                     <Clock v-else class="h-3 w-3" />
                     {{
                       item.paid
-                        ? 'Pago'
+                        ? item.isShared && payerBadgeLabel(item.paidBy)
+                          ? payerBadgeLabel(item.paidBy)
+                          : 'Pago'
                         : recurringStore.statusFor(item) === 'overdue'
                           ? 'Vencida'
                           : 'Pendente'
@@ -812,6 +828,44 @@ async function confirmRemove() {
             </template>
             Essa alteração vale somente para <strong>{{ periodLabel }}</strong>.
           </p>
+        </div>
+
+        <div
+          v-if="selectedBill?.isShared && hasPartner && authStore.profile?.partner"
+          class="space-y-2"
+        >
+          <label class="text-xs font-medium text-foreground">
+            Quem pagou esta conta compartilhada?
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-colors"
+              :class="
+                selectedPayerUserId === authStore.currentUserId
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="selectedPayerUserId = authStore.currentUserId || ''"
+            >
+              <Check v-if="selectedPayerUserId === authStore.currentUserId" class="h-3.5 w-3.5 text-primary" />
+              <span>{{ myShortName }} (Você)</span>
+            </button>
+
+            <button
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs transition-colors"
+              :class="
+                selectedPayerUserId === authStore.profile.partner.id
+                  ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+              "
+              @click="selectedPayerUserId = authStore.profile.partner.id"
+            >
+              <Check v-if="selectedPayerUserId === authStore.profile.partner.id" class="h-3.5 w-3.5 text-primary" />
+              <span>{{ partnerShortName }}</span>
+            </button>
+          </div>
         </div>
 
         <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">

@@ -28,6 +28,7 @@ const loading = ref(true)
 const savingProfile = ref(false)
 const savingPassword = ref(false)
 const linking = ref(false)
+const togglingOverview = ref(false)
 const profile = ref<UserProfile | null>(null)
 
 const nameInput = ref('')
@@ -129,6 +130,26 @@ async function unlinkPartner() {
     toastStore.error(e instanceof Error ? e.message : 'Erro ao remover vínculo.')
   } finally {
     linking.value = false
+  }
+}
+
+async function toggleCoupleOverview() {
+  if (!profile.value?.partner || togglingOverview.value) return
+  togglingOverview.value = true
+  const nextVal = !Boolean(profile.value?.family?.shareOverview)
+  try {
+    const updated = await usersApi.updatePartnerSettings({ shareOverview: nextVal })
+    profile.value = updated
+    authStore.profile = updated
+    toastStore.success(
+      nextVal
+        ? 'Visão discriminada do casal habilitada no painel!'
+        : 'Visão discriminada do casal desativada.',
+    )
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao atualizar configuração do casal.')
+  } finally {
+    togglingOverview.value = false
   }
 }
 
@@ -304,31 +325,60 @@ function handleLogout() {
         </CardHeader>
 
         <CardContent class="p-5">
-          <div
-            v-if="profile.partner"
-            class="flex flex-col justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 sm:flex-row sm:items-center"
-          >
-            <div class="min-w-0">
-              <span class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Vinculado a
-              </span>
-              <p class="text-sm font-bold text-foreground truncate">
-                {{ profile.partner.email }}
-              </p>
-              <p v-if="profile.partner.name" class="text-xs text-muted-foreground">
-                {{ profile.partner.name }}
-              </p>
+          <div v-if="profile.partner" class="space-y-4">
+            <div
+              class="flex flex-col justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 sm:flex-row sm:items-center"
+            >
+              <div class="min-w-0">
+                <span class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Vinculado a
+                </span>
+                <p class="text-sm font-bold text-foreground truncate">
+                  {{ profile.partner.email }}
+                </p>
+                <p v-if="profile.partner.name" class="text-xs text-muted-foreground">
+                  {{ profile.partner.name }}
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                variant="destructive"
+                size="xs"
+                :disabled="linking"
+                @click="unlinkPartner"
+              >
+                Remover vínculo
+              </Button>
             </div>
 
-            <Button
+            <button
               type="button"
-              variant="destructive"
-              size="xs"
-              :disabled="linking"
-              @click="unlinkPartner"
+              class="flex w-full items-center justify-between gap-3 rounded-xl border p-3.5 text-left transition-colors disabled:opacity-50"
+              :class="
+                profile.family?.shareOverview
+                  ? 'border-primary/40 bg-primary/10'
+                  : 'border-border bg-background hover:bg-muted/30'
+              "
+              :disabled="togglingOverview"
+              @click="toggleCoupleOverview"
             >
-              Remover vínculo
-            </Button>
+              <div class="space-y-0.5">
+                <p class="text-xs font-semibold text-foreground">
+                  Exibir resumo do casal discriminado (valores separados)
+                </p>
+                <p class="text-[11px] text-muted-foreground leading-relaxed">
+                  Quando ativo, o painel mostra um quadro lado a lado com o resumo de cada pessoa de forma separada, sem misturar nem somar os saldos individuais.
+                </p>
+              </div>
+
+              <Badge
+                :variant="profile.family?.shareOverview ? 'success' : 'secondary'"
+                class="shrink-0 text-[10px] px-2 py-0.5"
+              >
+                {{ profile.family?.shareOverview ? 'Ativo' : 'Desativado' }}
+              </Badge>
+            </button>
           </div>
 
           <form v-else class="space-y-3.5" @submit.prevent="linkPartner">

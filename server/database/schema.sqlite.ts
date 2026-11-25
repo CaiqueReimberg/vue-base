@@ -3,6 +3,7 @@ import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core'
 export const families = sqliteTable('families', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  shareOverview: integer('share_overview', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -175,6 +176,7 @@ export const transactions = sqliteTable('transactions', {
   userId: text('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
+  paidByUserId: text('paid_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   accountId: text('account_id').references(() => accounts.id, { onDelete: 'cascade' }),
   cardId: text('card_id').references(() => cards.id, { onDelete: 'cascade' }),
   categoryId: text('category_id').references(() => categories.id, { onDelete: 'set null' }),
