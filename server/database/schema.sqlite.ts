@@ -16,6 +16,8 @@ export const users = sqliteTable('users', {
   isPremium: integer('is_premium', { mode: 'boolean' }).notNull().default(false),
   invoiceAnalysisEnabled: integer('invoice_analysis_enabled', { mode: 'boolean' }).notNull().default(false),
   isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+  soloMode: integer('solo_mode', { mode: 'boolean' }).notNull().default(false),
+  onboardingCompletedAt: text('onboarding_completed_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })

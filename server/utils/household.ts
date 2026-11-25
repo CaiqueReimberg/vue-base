@@ -172,6 +172,8 @@ export async function getUserProfileResponse(userId: string) {
     isPremium: Boolean(user.isPremium),
     invoiceAnalysisEnabled: Boolean(user.invoiceAnalysisEnabled),
     isAdmin: Boolean(user.isAdmin),
+    soloMode: Boolean(user.soloMode),
+    onboardingCompletedAt: user.onboardingCompletedAt ?? null,
     features,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,

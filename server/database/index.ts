@@ -35,6 +35,8 @@ function createSqliteDb() {
       is_premium INTEGER NOT NULL DEFAULT 0,
       invoice_analysis_enabled INTEGER NOT NULL DEFAULT 0,
       is_admin INTEGER NOT NULL DEFAULT 0,
+      solo_mode INTEGER NOT NULL DEFAULT 0,
+      onboarding_completed_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -229,6 +231,12 @@ function createSqliteDb() {
   }
   if (!userCols.includes('is_admin')) {
     sqlite.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;')
+  }
+  if (!userCols.includes('solo_mode')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN solo_mode INTEGER NOT NULL DEFAULT 0;')
+  }
+  if (!userCols.includes('onboarding_completed_at')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN onboarding_completed_at TEXT;')
   }
 
   const countRow = sqlite

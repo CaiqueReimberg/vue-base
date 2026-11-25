@@ -93,11 +93,21 @@ function storageKey(prefix: string, uid: string) {
 }
 
 function syncUserFlags() {
-  if (typeof window === 'undefined') return
+  const dbDismissed = Boolean(authStore.profile?.onboardingCompletedAt)
+  const dbSolo = Boolean(authStore.profile?.soloMode)
+
+  if (typeof window === 'undefined') {
+    checklistDismissed.value = dbDismissed
+    soloConfirmed.value = dbSolo
+    return
+  }
+
   const uid = authStore.currentUserId
   if (!uid) return
-  checklistDismissed.value = localStorage.getItem(storageKey('dismissed', uid)) === '1'
-  soloConfirmed.value = localStorage.getItem(storageKey('solo', uid)) === '1'
+  checklistDismissed.value =
+    dbDismissed || localStorage.getItem(storageKey('dismissed', uid)) === '1'
+  soloConfirmed.value =
+    dbSolo || localStorage.getItem(storageKey('solo', uid)) === '1'
 }
 
 function markWelcomeSeen() {
@@ -108,6 +118,9 @@ function markWelcomeSeen() {
 }
 
 function hasSeenWelcome(): boolean {
+  if (authStore.profile?.onboardingCompletedAt || authStore.profile?.soloMode) {
+    return true
+  }
   if (typeof window === 'undefined') return true
   const uid = authStore.currentUserId
   if (!uid) return true
@@ -188,12 +201,25 @@ function openWelcomeTour(startStep: 1 | 2 | 3 = 1) {
   markWelcomeSeen()
 }
 
+async function persistUserOnboardingFlags(payload: {
+  soloMode?: boolean
+  onboardingCompleted?: boolean
+}) {
+  try {
+    const updated = await usersApi.updateMe(payload)
+    authStore.profile = updated
+  } catch {
+    // Mantém o estado local caso a rede oscile
+  }
+}
+
 function dismissChecklist() {
   const uid = authStore.currentUserId
   checklistDismissed.value = true
   if (uid && typeof window !== 'undefined') {
     localStorage.setItem(storageKey('dismissed', uid), '1')
   }
+  void persistUserOnboardingFlags({ onboardingCompleted: true })
 }
 
 function confirmSoloUsage() {
@@ -202,7 +228,14 @@ function confirmSoloUsage() {
   if (uid && typeof window !== 'undefined') {
     localStorage.setItem(storageKey('solo', uid), '1')
   }
+  void persistUserOnboardingFlags({ soloMode: true })
 }
+
+watch(allStepsCompleted, (done) => {
+  if (done && props.ready && !authStore.profile?.onboardingCompletedAt) {
+    void persistUserOnboardingFlags({ onboardingCompleted: true })
+  }
+})
 
 async function handleTourSavePlan() {
   const inc = Number(tourIncome.value) || 0
@@ -227,6 +260,23 @@ async function handleTourSavePlan() {
 }
 
 async function handleFinishTour() {
+  // Caso tenha digitado renda na etapa 2 e pulado pelas barrinhas de etapa sem salvar, salva agora
+  const inc = Number(tourIncome.value) || 0
+  const sav = Number(tourSavings.value) || 0
+  if (
+    inc > 0 &&
+    (inc !== props.configuredIncome || Math.max(sav, 0) !== props.configuredSavings)
+  ) {
+    try {
+      await dashboardStore.saveMonthlyPlan({
+        monthlyIncome: inc,
+        savingsGoal: sav >= 0 ? sav : 0,
+      })
+    } catch {
+      // Prossegue para conclusão do tour
+    }
+  }
+
   if (tourPartnerMode.value === 'solo' && !hasPartnerLinked.value) {
     confirmSoloUsage()
     tourOpen.value = false

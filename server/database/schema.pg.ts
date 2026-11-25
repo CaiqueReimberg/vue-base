@@ -20,6 +20,8 @@ export const users = dualpactSchema.table('users', {
   isPremium: boolean('is_premium').notNull().default(false),
   invoiceAnalysisEnabled: boolean('invoice_analysis_enabled').notNull().default(false),
   isAdmin: boolean('is_admin').notNull().default(false),
+  soloMode: boolean('solo_mode').notNull().default(false),
+  onboardingCompletedAt: text('onboarding_completed_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })

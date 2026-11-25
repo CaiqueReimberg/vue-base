@@ -8,11 +8,18 @@ import { getUserOrThrow, getUserProfileResponse } from '../../utils/household'
 
 export default defineEventHandler(async (event) => {
   const { userId } = requireAuthUser(event)
-  const body = await readBody<{ email?: string; name?: string; password?: string }>(event)
+  const body = await readBody<{
+    email?: string
+    name?: string
+    password?: string
+    soloMode?: boolean
+    onboardingCompleted?: boolean
+  }>(event)
   const user = await getUserOrThrow(userId)
 
+  const now = new Date().toISOString()
   const updates: Partial<typeof users.$inferInsert> = {
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   }
 
   if (body?.email !== undefined) {
@@ -36,6 +43,14 @@ export default defineEventHandler(async (event) => {
 
   if (body?.password) {
     updates.password = await bcrypt.hash(body.password, 10)
+  }
+
+  if (typeof body?.soloMode === 'boolean') {
+    updates.soloMode = body.soloMode
+  }
+
+  if (typeof body?.onboardingCompleted === 'boolean') {
+    updates.onboardingCompletedAt = body.onboardingCompleted ? now : null
   }
 
   await db.update(users).set(updates).where(eq(users.id, userId))

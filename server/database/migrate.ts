@@ -387,6 +387,17 @@ const MIGRATIONS: MigrationStep[] = [
         WHERE is_admin = TRUE;
     `,
   },
+  {
+    id: '0012_add_user_onboarding_state',
+    description: 'Adiciona solo_mode e onboarding_completed_at em users para persistir conclusao do onboarding entre dispositivos',
+    up: (s) => `
+      ALTER TABLE "${s}".users
+        ADD COLUMN IF NOT EXISTS solo_mode BOOLEAN NOT NULL DEFAULT FALSE;
+
+      ALTER TABLE "${s}".users
+        ADD COLUMN IF NOT EXISTS onboarding_completed_at TEXT;
+    `,
+  },
 ]
 
 let migrationPromise: Promise<void> | null = null

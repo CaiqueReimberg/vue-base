@@ -7,6 +7,8 @@ export interface UserProfile {
   isPremium: boolean
   invoiceAnalysisEnabled: boolean
   isAdmin: boolean
+  soloMode?: boolean
+  onboardingCompletedAt?: string | null
   features?: Record<string, boolean>
   createdAt: string
   updatedAt: string
@@ -46,6 +48,8 @@ export interface UpdateMePayload {
   email?: string
   name?: string
   password?: string
+  soloMode?: boolean
+  onboardingCompleted?: boolean
 }
 
 export const usersApi = {
