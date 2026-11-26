@@ -22,11 +22,20 @@ import {
   parseInvoiceText,
   SAMPLE_INVOICE_TEXT,
 } from '@/utils/invoice-parser'
+import { useDashboardStore } from '@/stores/dashboard/dashboard.store'
 import { useToastStore } from '@/stores/toast/toast.store'
-import { currentReferenceMonth, formatCurrency, formatPeriodLabel } from '@/utils/month'
 import {
+  currentReferenceMonth,
+  formatCurrency,
+  formatPeriodLabel,
+  shiftReferenceMonth,
+} from '@/utils/month'
+import {
+  Calendar,
   Car,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   FileSpreadsheet,
   Flame,
@@ -49,13 +58,16 @@ import {
 
 const toastStore = useToastStore()
 const authStore = useAuthStore()
+const dashboardStore = useDashboardStore()
 const router = useRouter()
 
 const CARD_PRESETS = ['Nubank', 'Itaú', 'Inter', 'C6 Bank', 'XP', 'Santander', 'Bradesco']
 
 const loading = ref(true)
 const savedInvoices = ref<SavedInvoiceAnalysis[]>([])
+const selectedMonth = ref(dashboardStore.referenceMonth || currentReferenceMonth())
 const selectedInvoiceId = ref<string | null>(null)
+const selectedPeriodLabel = computed(() => formatPeriodLabel(selectedMonth.value))
 
 // Estado do Importador / Destrinchador (no Drawer ou tela inicial)
 const importDrawerOpen = ref(false)
@@ -87,8 +99,8 @@ interface DisplayInvoiceItem extends ParsedInvoiceItem {
   _sourceCardName?: string
 }
 
-// Meses que possuem 2 ou mais faturas salvas (habilita botão "Todos os cartões do mês")
-const multiCardMonths = computed(() => {
+// Meses que possuem faturas salvas (ordenados do mais recente ao mais antigo)
+const availableMonths = computed(() => {
   const map = new Map<string, { month: string; count: number; total: number }>()
   for (const inv of savedInvoices.value) {
     const prev = map.get(inv.referenceMonth) ?? {
@@ -100,8 +112,34 @@ const multiCardMonths = computed(() => {
     prev.total += Number(inv.totalAmount || 0)
     map.set(inv.referenceMonth, prev)
   }
-  return Array.from(map.values()).filter((m) => m.count >= 2)
+  return Array.from(map.values()).sort((a, b) => b.month.localeCompare(a.month))
 })
+
+// Faturas apenas do mês selecionado no topo
+const monthInvoices = computed(() =>
+  savedInvoices.value.filter((i) => i.referenceMonth === selectedMonth.value),
+)
+
+const monthTotalAmount = computed(() =>
+  monthInvoices.value.reduce((sum, i) => sum + Number(i.totalAmount || 0), 0),
+)
+
+function syncSelectionForMonth(ym: string) {
+  selectedMonth.value = ym
+  activeCategoryFilter.value = null
+  const inMonth = savedInvoices.value.filter((i) => i.referenceMonth === ym)
+  if (inMonth.length >= 2) {
+    selectedInvoiceId.value = `all:${ym}`
+  } else if (inMonth.length === 1) {
+    selectedInvoiceId.value = inMonth[0].id
+  } else {
+    selectedInvoiceId.value = null
+  }
+}
+
+function changeSelectedMonth(delta: number) {
+  syncSelectionForMonth(shiftReferenceMonth(selectedMonth.value, delta))
+}
 
 const isCombinedView = computed(
   () => Boolean(selectedInvoiceId.value && selectedInvoiceId.value.startsWith('all:')),
@@ -120,9 +158,9 @@ const combinedInvoices = computed(() => {
 const activeInvoice = computed<SavedInvoiceAnalysis | null>(() => {
   if (isCombinedView.value) return null
   if (selectedInvoiceId.value) {
-    return savedInvoices.value.find((i) => i.id === selectedInvoiceId.value) ?? null
+    return monthInvoices.value.find((i) => i.id === selectedInvoiceId.value) ?? null
   }
-  return savedInvoices.value[0] ?? null
+  return monthInvoices.value[0] ?? null
 })
 
 const hasActiveSelection = computed(
@@ -248,8 +286,12 @@ async function fetchInvoices() {
   try {
     const list = await invoicesApi.list()
     savedInvoices.value = list
-    if (list.length > 0 && !selectedInvoiceId.value) {
-      selectedInvoiceId.value = list[0].id
+    if (list.length > 0) {
+      const hasInSelected = list.some((i) => i.referenceMonth === selectedMonth.value)
+      const targetYm = hasInSelected ? selectedMonth.value : list[0].referenceMonth
+      syncSelectionForMonth(targetYm)
+    } else {
+      selectedInvoiceId.value = null
     }
   } catch {
     toastStore.error('Não foi possível carregar as faturas salvas.')
@@ -298,6 +340,7 @@ onMounted(async () => {
 })
 
 function openImportDrawer() {
+  referenceMonth.value = selectedMonth.value
   rawInvoiceText.value = ''
   previewItems.value = []
   importDrawerOpen.value = true
@@ -463,6 +506,7 @@ async function handleSaveInvoice() {
       created,
       ...savedInvoices.value.filter((i) => i.id !== created.id),
     ]
+    selectedMonth.value = created.referenceMonth
     selectedInvoiceId.value = created.id
     activeCategoryFilter.value = null
     importDrawerOpen.value = false
@@ -501,8 +545,8 @@ async function confirmRemove() {
   try {
     await invoicesApi.delete(inv.id)
     savedInvoices.value = savedInvoices.value.filter((i) => i.id !== inv.id)
-    if (selectedInvoiceId.value === inv.id) {
-      selectedInvoiceId.value = savedInvoices.value[0]?.id ?? null
+    if (selectedInvoiceId.value === inv.id || selectedInvoiceId.value === `all:${inv.referenceMonth}`) {
+      syncSelectionForMonth(selectedMonth.value)
     }
     toastStore.success('Análise de fatura removida.')
   } catch {
@@ -527,51 +571,108 @@ async function confirmRemove() {
       @confirm="confirmRemove"
     />
 
-    <!-- Cabeçalho -->
-    <header class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-      <div>
-        <h1 class="text-xl font-bold tracking-tight text-foreground">
-          Análise de Faturas do Cartão
-        </h1>
-        <p class="mt-0.5 text-xs text-muted-foreground">
-          Envie o arquivo OFX ou CSV do banco ou cole os lançamentos da fatura para ver exatamente com o que você mais gastou.
-        </p>
+    <!-- Cabeçalho com Seletor de Mês igual às demais páginas -->
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="inline-flex items-center rounded-xl border border-border bg-card p-1 shadow-2xs">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8 rounded-lg"
+            title="Mês anterior"
+            @click="changeSelectedMonth(-1)"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </Button>
+
+          <label class="relative flex cursor-pointer items-center gap-1.5 px-3 text-sm font-semibold text-foreground min-w-[115px] justify-center hover:text-primary transition-colors" title="Clique para escolher o mês">
+            <Calendar class="h-3.5 w-3.5 text-primary shrink-0" />
+            <span>{{ selectedPeriodLabel }}</span>
+            <input
+              :value="selectedMonth"
+              type="month"
+              class="absolute inset-0 cursor-pointer opacity-0"
+              @change="syncSelectionForMonth(($event.target as HTMLInputElement).value || selectedMonth)"
+            />
+          </label>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8 rounded-lg"
+            title="Próximo mês"
+            @click="changeSelectedMonth(1)"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div class="hidden sm:block">
+          <h1 class="text-base font-bold tracking-tight text-foreground leading-tight">
+            Análise de Faturas
+          </h1>
+          <p class="text-xs text-muted-foreground">
+            Escolha o mês e o cartão para ver com o que você mais gastou
+          </p>
+        </div>
       </div>
 
-      <Button class="gap-1.5" @click="openImportDrawer">
+      <Button size="sm" class="h-9 gap-1.5 px-3.5" @click="openImportDrawer">
         <Plus class="h-4 w-4" />
         <span>Destrinchar nova fatura</span>
       </Button>
     </header>
 
-    <!-- Seletor de Faturas Salvas + Visão Somada por Mês -->
-    <div v-if="savedInvoices.length > 0" class="flex flex-wrap items-center gap-2">
-      <!-- Botões de Visão Somada ("Todos os cartões do mês") quando há 2+ faturas no mesmo mês -->
+    <!-- Atalhos de Meses com Faturas Salvas (quando há mais de 1 mês ou está fora de um mês salvo) -->
+    <div
+      v-if="availableMonths.length > 1 || (availableMonths.length === 1 && availableMonths[0].month !== selectedMonth)"
+      class="flex flex-wrap items-center gap-1.5"
+    >
+      <span class="mr-1 text-[11px] font-medium text-muted-foreground">Meses salvos:</span>
       <button
-        v-for="mc in multiCardMonths"
-        :key="`all-${mc.month}`"
+        v-for="m in availableMonths"
+        :key="m.month"
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors"
+        :class="
+          selectedMonth === m.month
+            ? 'border-primary bg-primary/10 text-primary font-semibold'
+            : 'border-border bg-card text-muted-foreground hover:text-foreground'
+        "
+        @click="syncSelectionForMonth(m.month)"
+      >
+        <span>{{ formatPeriodLabel(m.month) }}</span>
+        <span class="text-[10px] opacity-80">({{ m.count }})</span>
+      </button>
+    </div>
+
+    <!-- Seletor de Cartões dentro do Mês Selecionado -->
+    <div v-if="monthInvoices.length > 0" class="flex flex-wrap items-center gap-2">
+      <!-- Botão de Visão Somada quando há 2+ cartões no mês selecionado -->
+      <button
+        v-if="monthInvoices.length >= 2"
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-medium transition-all"
         :class="
-          selectedInvoiceId === `all:${mc.month}`
+          selectedInvoiceId === `all:${selectedMonth}`
             ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold shadow-2xs'
             : 'border-emerald-500/30 bg-emerald-500/5 text-foreground hover:bg-emerald-500/10'
         "
         @click="
-          selectedInvoiceId = `all:${mc.month}`;
+          selectedInvoiceId = `all:${selectedMonth}`;
           activeCategoryFilter = null
         "
       >
         <Layers class="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-        <span>Todos de {{ formatPeriodLabel(mc.month) }} ({{ mc.count }})</span>
-        <Badge variant="success" class="text-[10px] px-1.5 py-0">
-          {{ formatCurrency(mc.total) }}
+        <span>Todos os cartões ({{ monthInvoices.length }})</span>
+        <Badge variant="success" class="text-[10px] px-1.5 py-0 tabular-nums">
+          {{ formatCurrency(monthTotalAmount) }}
         </Badge>
       </button>
 
-      <!-- Botões Individuais de Cada Cartão -->
+      <!-- Botões Individuais de Cada Cartão do Mês -->
       <button
-        v-for="inv in savedInvoices"
+        v-for="inv in monthInvoices"
         :key="inv.id"
         type="button"
         class="inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-medium transition-all"
@@ -586,8 +687,8 @@ async function confirmRemove() {
         "
       >
         <CreditCard class="h-3.5 w-3.5" />
-        <span>{{ inv.cardName }} · {{ formatPeriodLabel(inv.referenceMonth) }}</span>
-        <Badge variant="secondary" class="text-[10px] px-1.5 py-0">
+        <span>{{ inv.cardName }}</span>
+        <Badge variant="secondary" class="text-[10px] px-1.5 py-0 tabular-nums">
           {{ formatCurrency(inv.totalAmount) }}
         </Badge>
       </button>
@@ -911,22 +1012,26 @@ async function confirmRemove() {
       </Card>
     </template>
 
-    <!-- Empty State quando ainda não há nenhuma fatura destrinchada -->
+    <!-- Empty State quando não há fatura destrinchada no mês selecionado -->
     <Card v-else class="border-dashed">
       <CardContent class="flex flex-col items-center justify-center py-14 text-center">
         <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
           <FileSpreadsheet class="h-6 w-6" />
         </div>
         <h3 class="text-base font-semibold text-foreground">
-          Descubra para onde está indo o dinheiro do cartão
+          {{
+            savedInvoices.length > 0
+              ? `Nenhuma fatura destrinchada em ${selectedPeriodLabel}`
+              : 'Descubra para onde está indo o dinheiro do cartão'
+          }}
         </h3>
         <p class="mt-1 max-w-md text-xs text-muted-foreground">
-          Envie o arquivo OFX ou CSV da fatura (Nubank, Inter, Itaú, C6, Bradesco...) ou simplesmente copie e cole as linhas da fatura para ver o ranking por categoria e estabelecimento.
+          Envie o arquivo OFX ou CSV da fatura (Nubank, Inter, Itaú, C6, Bradesco...) ou copie e cole as linhas da fatura para ver o ranking por categoria e estabelecimento.
         </p>
         <div class="mt-5 flex flex-wrap items-center justify-center gap-2.5">
           <Button class="gap-1.5" @click="openImportDrawer">
             <Upload class="h-4 w-4" />
-            <span>Destrinchar minha primeira fatura</span>
+            <span>Destrinchar fatura de {{ selectedPeriodLabel }}</span>
           </Button>
         </div>
       </CardContent>

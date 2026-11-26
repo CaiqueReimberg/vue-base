@@ -13,6 +13,7 @@ import { Progress } from '@/components/ui/progress'
 import { Sheet } from '@/components/ui/sheet'
 import { CurrencyInput } from '@/components/ui/currency-input'
 import { Skeleton } from '@/components/ui/skeleton'
+import TruncatedText from '@/components/ui/tooltip/TruncatedText.vue'
 import PremiumOnboarding from '@/components/dashboard/PremiumOnboarding.vue'
 import IncomeEntrySheet from '@/components/incomes/IncomeEntrySheet.vue'
 import {
@@ -250,6 +251,38 @@ const sharedTotalBills = computed(() => {
     .reduce((s, i) => s + i.amount, 0)
   return pend + paid
 })
+
+const sharedItemsCount = computed(
+  () =>
+    pendingItems.value.filter((i) => i.isShared && i.kind !== 'savings').length +
+    paidItems.value.filter((i) => i.isShared && i.kind !== 'savings').length,
+)
+
+function pendingSecondaryText(item: DashboardPendingItem): string {
+  const parts: string[] = []
+  const owner = ownerBadgeLabel(item.owner, authStore.currentUserId)
+  if (owner) parts.push(`De ${owner}`)
+  if (item.kind === 'savings') {
+    parts.push('Meta de reserva do mês')
+  } else if (item.dueDay && item.status === 'pending') {
+    parts.push(item.statusLabel)
+  } else if (!item.dueDay && item.subtitle) {
+    parts.push(item.subtitle)
+  }
+  return parts.join(' · ')
+}
+
+function paidSecondaryText(item: DashboardPaidItem): string {
+  const parts: string[] = []
+  const owner = ownerBadgeLabel(item.owner, authStore.currentUserId)
+  if (owner) parts.push(`De ${owner}`)
+  if (item.isShared && !isExternalPaidByMe(item)) {
+    const payer = payerBadgeLabel(item.paidBy)
+    if (payer) parts.push(payer)
+  }
+  if (item.paidDateLabel) parts.push(item.paidDateLabel)
+  return parts.join(' · ')
+}
 
 // Placar de quem já pagou quanto nas contas compartilhadas do mês
 const sharedPaidByMe = computed(() =>
@@ -764,7 +797,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
       :configured-income="configuredIncome"
       :configured-savings="configuredSavings"
       :total-bills-count="totalBillsCount"
-      @open-plan="openPlanDrawer"
+      @open-plan="incomeSheetOpen = true"
       @open-add-bill="openAddDrawer('recurring')"
     />
 
@@ -778,7 +811,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
           </span>
         </div>
 
-        <div class="flex items-center gap-1.5">
+        <div class="flex flex-wrap items-center gap-1.5">
           <Button
             v-if="hasPartner"
             type="button"
@@ -790,7 +823,19 @@ async function handleRemovePending(item: DashboardPendingItem) {
             @click="toggleCoupleOverview"
           >
             <Users class="h-3 w-3 text-primary" />
-            <span>{{ coupleShareOverview ? 'Ocultar visão do casal' : 'Ver visão do casal' }}</span>
+            <span>{{ coupleShareOverview ? 'Ocultar casal' : 'Comparativo casal' }}</span>
+          </Button>
+
+          <Button
+            v-if="configuredIncome > 0 && endOfMonthLeftover == null"
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            title="Registrar quanto sobrou no fim do mês"
+            @click="openCheckinDrawer"
+          >
+            <Flag class="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+            <span>Fechar mês</span>
           </Button>
 
           <Button
@@ -799,8 +844,8 @@ async function handleRemovePending(item: DashboardPendingItem) {
             class="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
             @click="openPlanDrawer"
           >
-            <Pencil class="h-3 w-3" />
-            <span>Definir Renda & Meta</span>
+            <PiggyBank class="h-3.5 w-3.5 text-primary" />
+            <span>Meta de reserva</span>
           </Button>
         </div>
       </div>
@@ -815,12 +860,12 @@ async function handleRemovePending(item: DashboardPendingItem) {
         </div>
 
         <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          <!-- Bloco 1: Renda do Mês -->
+          <!-- Bloco 1: Renda no mês -->
           <div
             class="group flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4 text-left transition-colors hover:border-emerald-500/40"
           >
             <div class="flex items-center justify-between gap-1">
-              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">1. Renda no mês</span>
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">Renda no mês</span>
               <button
                 type="button"
                 class="inline-flex items-center gap-0.5 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 transition-colors shrink-0"
@@ -856,10 +901,10 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </button>
           </div>
 
-          <!-- Bloco 2: Contas a Pagar no Mês (estritamente suas contas) -->
+          <!-- Bloco 2: Suas contas -->
           <div class="flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4">
             <div class="flex items-center justify-between gap-1">
-              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">2. Suas contas</span>
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">Suas contas</span>
               <Badge variant="secondary" class="text-[10px] px-1.5 py-0 shrink-0">
                 {{ totalBillsCount }}
               </Badge>
@@ -872,14 +917,14 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </span>
           </div>
 
-          <!-- Bloco 3: Quero Guardar -->
+          <!-- Bloco 3: Quero guardar -->
           <button
             type="button"
             class="group flex flex-col justify-between rounded-xl border border-border bg-background p-3 sm:p-4 text-left transition-colors hover:border-primary/40"
             @click="openPlanDrawer"
           >
             <div class="flex items-center justify-between gap-1">
-              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">3. Quero guardar</span>
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">Quero guardar</span>
               <Badge
                 v-if="configuredSavings > 0"
                 :variant="isSavingsPaid ? 'success' : 'warning'"
@@ -903,7 +948,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
             </span>
           </button>
 
-          <!-- Bloco 4: LIVRE PRA GASTAR -->
+          <!-- Bloco 4: Livre pra gastar -->
           <div
             class="flex flex-col justify-between rounded-xl border p-3 sm:p-4"
             :class="
@@ -917,7 +962,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
                 class="text-[11px] sm:text-xs font-semibold uppercase tracking-wide truncate"
                 :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
               >
-                4. Livre
+                Livre pra gastar
               </span>
               <Wallet
                 class="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0"
@@ -937,7 +982,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
               ~ {{ formatCurrency(freePerWeekAmount) }}/sem
             </span>
             <span v-else class="mt-1 text-[10px] sm:text-[11px] text-red-600/90 truncate">
-              Ajuste renda/metas
+              Ajuste ganhos ou meta
             </span>
           </div>
         </div>
@@ -1097,50 +1142,12 @@ async function handleRemovePending(item: DashboardPendingItem) {
       {{ error }}
     </div>
 
-    <!-- 2. PROGRESSO DAS CONTAS DO MÊS -->
-    <Card>
-      <CardContent class="p-4 space-y-3">
-        <template v-if="loading && pendingItems.length === 0 && paidItems.length === 0">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2 sm:gap-4">
-              <Skeleton class="h-3.5 w-20 sm:w-36" />
-              <Skeleton class="h-3.5 w-20 sm:w-36" />
-            </div>
-            <Skeleton class="h-3.5 w-16 sm:w-40" />
-          </div>
-          <Skeleton class="h-2 w-full rounded-full" />
-        </template>
-
-        <template v-else>
-          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div class="flex items-center gap-4">
-              <span class="font-medium text-foreground">
-                Falta pagar: <strong class="text-amber-600 dark:text-amber-400 tabular-nums">{{ formatCurrency(filteredPendingTotal) }}</strong>
-              </span>
-              <span class="font-medium text-foreground">
-                Já paguei: <strong class="text-emerald-600 dark:text-emerald-400 tabular-nums">{{ formatCurrency(filteredPaidTotal) }}</strong>
-              </span>
-            </div>
-            <span class="text-muted-foreground">
-              {{ filteredPaidItems.length }} de {{ filteredTotalCount }} contas pagas ({{ filteredProgressPercent }}%)
-            </span>
-          </div>
-
-          <Progress
-            :model-value="filteredProgressPercent"
-            class="h-2"
-            indicator-class="bg-emerald-600 dark:bg-emerald-500"
-          />
-        </template>
-      </CardContent>
-    </Card>
-
-    <!-- Barra de Filtro: Individual (padrão) vs Casal -->
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div class="inline-flex items-center rounded-xl border border-border bg-card p-1">
+    <!-- 2. CONTROLE DE VISÃO (Individual vs Casal) + PROGRESSO INTEGRADO -->
+    <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+      <div class="inline-flex items-center rounded-xl border border-border bg-card p-1 shadow-2xs">
         <button
           type="button"
-          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          class="rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors"
           :class="
             scopeFilter === 'individual'
               ? 'bg-secondary text-foreground font-semibold shadow-2xs'
@@ -1153,7 +1160,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
 
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          class="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors"
           :class="
             scopeFilter === 'shared'
               ? 'bg-secondary text-foreground font-semibold shadow-2xs'
@@ -1163,19 +1170,42 @@ async function handleRemovePending(item: DashboardPendingItem) {
         >
           <Users class="h-3.5 w-3.5 text-primary" />
           <span>Casal</span>
+          <span
+            v-if="sharedItemsCount > 0"
+            class="rounded-full bg-muted px-1.5 py-0 text-[10px] font-semibold text-muted-foreground"
+          >
+            {{ sharedItemsCount }}
+          </span>
         </button>
       </div>
 
-      <div v-if="sharedTotalBills > 0" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span class="inline-flex items-center gap-1.5">
-          <Users class="h-3.5 w-3.5 text-primary" />
-          <span>
-            Compartilhadas com o par: <strong class="tabular-nums text-foreground">{{ formatCurrency(sharedTotalBills) }}</strong>
-          </span>
+      <!-- Direita: Quando em Individual mostra barra de progresso enxuta; quando em Casal mostra placar do casal -->
+      <div
+        v-if="scopeFilter === 'individual' && filteredTotalCount > 0"
+        class="flex items-center gap-3 text-xs text-muted-foreground"
+      >
+        <span>
+          <strong class="text-foreground">{{ filteredPaidItems.length }}</strong> de
+          <strong class="text-foreground">{{ filteredTotalCount }}</strong> quitadas
+          ({{ filteredProgressPercent }}%)
+        </span>
+        <Progress
+          :model-value="filteredProgressPercent"
+          class="h-2 w-24 sm:w-32"
+          indicator-class="bg-emerald-600 dark:bg-emerald-500"
+        />
+      </div>
+
+      <div
+        v-else-if="scopeFilter === 'shared' && sharedTotalBills > 0"
+        class="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground"
+      >
+        <span>
+          Total do casal: <strong class="tabular-nums text-foreground">{{ formatCurrency(sharedTotalBills) }}</strong>
         </span>
         <span
           v-if="hasPartner && (sharedPaidByMe > 0 || sharedPaidByPartner > 0)"
-          class="rounded-lg border border-border bg-card px-2.5 py-0.5 text-[11px] tabular-nums"
+          class="rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] tabular-nums"
         >
           Pago por {{ myShortName }}: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(sharedPaidByMe) }}</strong>
           · Pago por {{ partnerShortName }}: <strong class="text-emerald-600 dark:text-emerald-400">{{ formatCurrency(sharedPaidByPartner) }}</strong>
@@ -1184,19 +1214,19 @@ async function handleRemovePending(item: DashboardPendingItem) {
     </div>
 
     <!-- 3. DUAS COLUNAS: FALTA PAGAR vs JÁ PAGUEI -->
-    <section class="grid grid-cols-1 gap-6 md:grid-cols-2">
+    <section class="grid grid-cols-1 gap-5 md:grid-cols-2">
       <!-- COLUNA 1: FALTA PAGAR -->
       <Card class="flex flex-col">
-        <CardHeader class="flex flex-row items-center justify-between border-b border-border py-4">
+        <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3.5 px-5">
           <div class="flex items-center gap-2">
-            <CardTitle class="text-sm font-semibold">Falta Pagar no Mês</CardTitle>
+            <CardTitle class="text-sm font-semibold">Falta Pagar</CardTitle>
             <Skeleton v-if="loading && pendingItems.length === 0" class="h-5 w-6 rounded-full" />
             <Badge v-else :variant="filteredPendingItems.length > 0 ? 'warning' : 'secondary'">
               {{ filteredPendingItems.length }}
             </Badge>
           </div>
           <Skeleton v-if="loading && pendingItems.length === 0" class="h-5 w-24" />
-          <span v-else class="text-sm font-semibold tabular-nums text-foreground">
+          <span v-else class="text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-400">
             {{ formatCurrency(filteredPendingTotal) }}
           </span>
         </CardHeader>
@@ -1241,51 +1271,41 @@ async function handleRemovePending(item: DashboardPendingItem) {
               class="group flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-muted/40 transition-colors"
               :class="item.kind === 'savings' ? 'bg-primary/5' : ''"
             >
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <PiggyBank v-if="item.kind === 'savings'" class="h-4 w-4 shrink-0 text-primary" />
-                  <p class="truncate text-sm font-medium text-foreground">
-                    {{ item.title }}
-                  </p>
-                  <Badge
-                    v-if="item.isShared"
-                    variant="outline"
-                    class="gap-1 text-[10px] px-1.5 py-0 font-normal"
-                  >
-                    <Users class="h-2.5 w-2.5 text-primary" />
-                    Casal
-                  </Badge>
-                  <Badge
-                    v-if="ownerBadgeLabel(item.owner, authStore.currentUserId)"
-                    variant="secondary"
-                    class="text-[10px] px-1.5 py-0 font-normal"
-                  >
-                    De {{ ownerBadgeLabel(item.owner, authStore.currentUserId) }}
-                  </Badge>
-                  <Badge
-                    v-if="item.kind === 'savings'"
-                    variant="secondary"
-                    class="text-[11px] px-1.5 py-0 font-normal"
-                  >
-                    Meta do mês
-                  </Badge>
-                  <Badge
-                    v-else-if="item.dueDay"
-                    :variant="
-                      item.status === 'overdue'
-                        ? 'destructive'
-                        : item.status === 'urgent'
-                          ? 'warning'
-                          : 'secondary'
-                    "
-                    class="text-[11px] px-1.5 py-0 font-normal"
-                  >
-                    {{ item.statusLabel }}
-                  </Badge>
+              <div class="flex min-w-0 items-center gap-2.5">
+                <PiggyBank v-if="item.kind === 'savings'" class="h-4 w-4 shrink-0 text-primary" />
+                <CreditCard v-else-if="item.kind === 'invoice'" class="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <TruncatedText
+                      :text="item.title"
+                      class="text-sm font-medium text-foreground"
+                    />
+                    <Badge
+                      v-if="scopeFilter === 'individual' && item.isShared"
+                      variant="outline"
+                      class="gap-1 text-[10px] px-1.5 py-0 font-normal shrink-0"
+                    >
+                      <Users class="h-2.5 w-2.5 text-primary" />
+                      Casal
+                    </Badge>
+                    <Badge
+                      v-if="item.dueDay && (item.status === 'overdue' || item.status === 'urgent')"
+                      :variant="item.status === 'overdue' ? 'destructive' : 'warning'"
+                      class="text-[10px] px-1.5 py-0 font-medium shrink-0"
+                    >
+                      {{ item.statusLabel }}
+                    </Badge>
+                  </div>
+
+                  <TruncatedText
+                    v-if="pendingSecondaryText(item)"
+                    :text="pendingSecondaryText(item)"
+                    class="mt-0.5 text-[11px] text-muted-foreground"
+                  />
                 </div>
               </div>
 
-              <div class="flex shrink-0 items-center gap-2.5">
+              <div class="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   class="group/price inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-semibold tabular-nums text-foreground transition-colors hover:bg-muted hover:text-primary"
@@ -1293,7 +1313,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
                   @click="openItemDrawer(item, 'edit')"
                 >
                   <span>{{ formatCurrency(item.amount) }}</span>
-                  <Pencil class="h-3 w-3 text-muted-foreground opacity-60 group-hover/price:opacity-100 group-hover/price:text-primary" />
+                  <Pencil class="h-3 w-3 text-muted-foreground opacity-50 group-hover/price:opacity-100 group-hover/price:text-primary" />
                 </button>
 
                 <Button
@@ -1311,7 +1331,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
                 <button
                   v-if="(item.kind === 'recurring' || item.kind === 'transaction' || item.kind === 'invoice') && isAddedByMe(item)"
                   type="button"
-                  class="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-opacity"
+                  class="hidden group-hover:inline-flex p-1 text-muted-foreground hover:text-red-500 transition-colors"
                   title="Excluir conta"
                   @click="handleRemovePending(item)"
                 >
@@ -1325,7 +1345,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
 
       <!-- COLUNA 2: JÁ PAGUEI -->
       <Card class="flex flex-col">
-        <CardHeader class="flex flex-row items-center justify-between border-b border-border py-4">
+        <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3.5 px-5">
           <div class="flex items-center gap-2">
             <CardTitle class="text-sm font-semibold">Já Paguei</CardTitle>
             <Skeleton v-if="loading && paidItems.length === 0" class="h-5 w-6 rounded-full" />
@@ -1387,50 +1407,40 @@ async function handleRemovePending(item: DashboardPendingItem) {
                 <PiggyBank v-if="item.kind === 'savings'" class="h-4 w-4 shrink-0 text-primary" />
                 <CheckCircle2 v-else class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <div class="min-w-0">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <p class="truncate text-sm font-medium text-foreground">
-                      {{ item.title }}
-                    </p>
+                  <div class="flex items-center gap-2">
+                    <TruncatedText
+                      :text="item.title"
+                      class="text-sm font-medium text-foreground"
+                    />
                     <Badge
                       v-if="item.kind === 'savings'"
                       variant="outline"
-                      class="gap-1 text-[10px] px-1.5 py-0 font-normal border-primary/30 text-primary"
+                      class="gap-1 text-[10px] px-1.5 py-0 font-normal border-primary/30 text-primary shrink-0"
                     >
                       Guardado
                     </Badge>
                     <Badge
-                      v-if="isExternalPaidByMe(item)"
+                      v-else-if="isExternalPaidByMe(item)"
                       variant="warning"
-                      class="gap-1 text-[10px] px-1.5 py-0 font-semibold"
+                      class="gap-1 text-[10px] px-1.5 py-0 font-semibold shrink-0"
                     >
                       Pago externo
                     </Badge>
                     <Badge
-                      v-else-if="item.isShared"
+                      v-else-if="scopeFilter === 'individual' && item.isShared"
                       variant="outline"
-                      class="gap-1 text-[10px] px-1.5 py-0 font-normal"
+                      class="gap-1 text-[10px] px-1.5 py-0 font-normal shrink-0"
                     >
                       <Users class="h-2.5 w-2.5 text-primary" />
                       Casal
                     </Badge>
-                    <Badge
-                      v-if="ownerBadgeLabel(item.owner, authStore.currentUserId)"
-                      variant="secondary"
-                      class="text-[10px] px-1.5 py-0 font-normal"
-                    >
-                      De {{ ownerBadgeLabel(item.owner, authStore.currentUserId) }}
-                    </Badge>
-                    <Badge
-                      v-if="item.isShared && !isExternalPaidByMe(item) && payerBadgeLabel(item.paidBy)"
-                      variant="secondary"
-                      class="text-[10px] px-1.5 py-0 font-medium text-emerald-700 dark:text-emerald-300"
-                    >
-                      {{ payerBadgeLabel(item.paidBy) }}
-                    </Badge>
                   </div>
-                  <p class="text-[11px] text-muted-foreground">
-                    {{ item.paidDateLabel }}
-                  </p>
+
+                  <TruncatedText
+                    v-if="paidSecondaryText(item)"
+                    :text="paidSecondaryText(item)"
+                    class="mt-0.5 text-[11px] text-muted-foreground"
+                  />
                 </div>
               </div>
 
@@ -1721,55 +1731,56 @@ async function handleRemovePending(item: DashboardPendingItem) {
     </Sheet>
 
     <!-- ============================================================ -->
-    <!-- DRAWER 2: DEFINIR RENDA DO MÊS & META DE GUARDAR -->
+    <!-- DRAWER 2: DEFINIR META DE RESERVA DO MÊS -->
     <!-- ============================================================ -->
     <Sheet
       v-model:open="planDrawerOpen"
-      :title="`Renda e Meta de ${periodLabel}`"
-      description="Defina quanto entra no mês e quanto querem separar antes do saldo livre."
+      :title="`Meta de reserva de ${periodLabel}`"
+      description="Defina quanto você quer separar neste mês antes do saldo livre."
     >
       <form class="space-y-5" @submit.prevent="handleSavePlan">
         <div class="space-y-1.5">
-          <div class="flex items-center justify-between gap-2">
-            <label class="text-xs font-medium text-foreground">
-              1. Renda base rápida (opcional)
-            </label>
-            <RouterLink
-              to="/incomes"
-              class="text-[11px] font-medium text-emerald-600 hover:underline dark:text-emerald-400"
-              @click="planDrawerOpen = false"
-            >
-              Ver entradas detalhadas
-            </RouterLink>
-          </div>
-          <CurrencyInput
-            v-model="incomeInput"
-            placeholder="Ex: 6.000,00 ou 0,00"
-          />
-          <p v-if="incomesEntriesTotal > 0" class="text-[11px] text-emerald-700 dark:text-emerald-300 tabular-nums">
-            + {{ formatCurrency(incomesEntriesTotal) }} somados das suas {{ incomesEntriesCount }} entradas deste mês.
-          </p>
-          <p v-else class="text-[11px] text-muted-foreground">
-            Use para informar um valor fixo rápido ou deixe em zero e cadastre cada ganho com a origem em Novo ganho.
-          </p>
-        </div>
-
-        <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">
-            2. Meta para guardar / investir no mês
+            Quanto você quer guardar neste mês?
           </label>
           <CurrencyInput
             v-model="savingsInput"
             placeholder="Ex: 2.000,00"
           />
           <p class="text-[11px] text-muted-foreground">
-            Valor separado logo no início ou ao longo do mês.
+            Esse valor entra na lista Falta Pagar como lembrete até você separar na sua reserva.
+          </p>
+        </div>
+
+        <!-- Só exibe ajuste da renda base legada caso a pessoa já tenha um valor antigo salvo lá -->
+        <div
+          v-if="baseConfiguredIncome > 0 || Number(incomeInput) > 0"
+          class="rounded-xl border border-border bg-muted/40 p-3.5 space-y-2"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-xs font-medium text-foreground">
+              Renda base fixa salva
+            </label>
+            <button
+              type="button"
+              class="text-[11px] font-medium text-red-500 hover:underline"
+              @click="incomeInput = 0"
+            >
+              Zerar e usar só Novo ganho
+            </button>
+          </div>
+          <CurrencyInput
+            v-model="incomeInput"
+            placeholder="0,00"
+          />
+          <p v-if="incomesEntriesTotal > 0" class="text-[11px] text-muted-foreground tabular-nums">
+            Somada com {{ formatCurrency(incomesEntriesTotal) }} das suas entradas detalhadas deste mês.
           </p>
         </div>
 
         <div class="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 space-y-1.5">
-          <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-            Simulação com suas contas atuais ({{ formatCurrency(totalMonthBills) }}):
+          <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
+            Renda ({{ formatCurrency((Number(incomeInput) || 0) + incomesEntriesTotal) }}) menos contas ({{ formatCurrency(totalMonthBills) }}):
           </span>
           <div class="text-xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
             Livre pra gastar: {{ formatCurrency((Number(incomeInput) || 0) + incomesEntriesTotal - totalMonthBills - (Number(savingsInput) || 0)) }}
@@ -1781,7 +1792,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
             Cancelar
           </Button>
           <Button type="submit" :disabled="savingPlan">
-            {{ savingPlan ? 'Salvando...' : 'Salvar planejamento' }}
+            {{ savingPlan ? 'Salvando...' : 'Salvar meta' }}
           </Button>
         </div>
       </form>

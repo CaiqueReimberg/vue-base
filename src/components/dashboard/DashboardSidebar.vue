@@ -38,6 +38,8 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const route = useRoute()
+const config = useRuntimeConfig()
+const appVersion = config.public.appVersion || '1.0.0'
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const { isDark, hideValues } = storeToRefs(themeStore)
@@ -258,15 +260,27 @@ function logout() {
           <span v-show="mobileOpen || !collapsed" class="truncate">Sair</span>
         </button>
 
-        <button
-          type="button"
-          class="collapse-toggle mt-1 flex w-full items-center justify-center rounded-lg py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          :title="collapsed ? 'Expandir menu' : 'Recolher menu'"
-          @click="emit('toggle-collapse')"
+        <div
+          class="mt-1 flex items-center pt-1.5 border-t border-border/50"
+          :class="mobileOpen || !collapsed ? 'justify-between px-2.5' : 'flex-col gap-1 justify-center'"
         >
-          <ChevronRight v-if="collapsed" class="h-4 w-4" />
-          <ChevronLeft v-else class="h-4 w-4" />
-        </button>
+          <span
+            class="font-mono text-[10px] font-medium text-muted-foreground/80 select-none"
+            :title="`DuoPact v${appVersion}`"
+          >
+            {{ `v${appVersion}` }}
+          </span>
+
+          <button
+            type="button"
+            class="collapse-toggle flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            :title="collapsed ? 'Expandir menu' : 'Recolher menu'"
+            @click="emit('toggle-collapse')"
+          >
+            <ChevronRight v-if="collapsed" class="h-4 w-4" />
+            <ChevronLeft v-else class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   </aside>

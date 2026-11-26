@@ -169,7 +169,7 @@ const steps = computed(() => [
       ? `Vinculado com ${authStore.profile?.partner?.email}`
       : soloConfirmed.value
         ? 'Configurado para uso individual'
-        : 'Divida contas do casal 50/50 mantendo gastos pessoais separados',
+        : 'Acompanhe as contas do casal mantendo o seu orçamento individual',
     done: stepPartnerDone.value,
     icon: Users,
   },
