@@ -195,7 +195,11 @@ async function handleSaveCard() {
 function openInvoiceDrawer(card: CreditCardItem, mode: 'launch' | 'pay') {
   targetCard.value = card
   invoiceDrawerMode.value = mode
-  invoiceAmountInput.value = card.monthInvoice ? card.monthInvoice.amount : ''
+  invoiceAmountInput.value = card.monthInvoice
+    ? card.monthInvoice.amount
+    : card.analysisTotalAmount && card.analysisTotalAmount > 0
+      ? card.analysisTotalAmount
+      : ''
   invoiceDueDayInput.value = card.monthInvoice?.dueDay ?? card.dueDay
   invoiceSharedInput.value = Boolean(card.monthInvoice?.isShared ?? card.shareWithPartner)
   invoicePayerUserId.value = authStore.currentUserId || ''
@@ -524,6 +528,17 @@ onMounted(() => {
               >
                 {{ formatCurrency(card.monthInvoice.amount) }}
               </div>
+              <div
+                v-else-if="card.analysisTotalAmount"
+                class="mt-0.5 space-y-0.5"
+              >
+                <span class="block text-sm font-semibold tabular-nums text-primary">
+                  Analisada: {{ formatCurrency(card.analysisTotalAmount) }}
+                </span>
+                <span class="block text-[11px] text-muted-foreground">
+                  Clique em Lançar fatura para confirmar no mês
+                </span>
+              </div>
               <div v-else class="mt-0.5 text-sm font-medium text-muted-foreground">
                 Não lançada neste mês
               </div>
@@ -711,6 +726,13 @@ onMounted(() => {
       description="Cada cartão possui apenas uma fatura por mês, evitando lançamentos duplicados."
     >
       <form class="space-y-4" @submit.prevent="handleSaveMonthlyInvoice(false)">
+        <p
+          v-if="!targetCard?.monthInvoice && targetCard?.analysisTotalAmount"
+          class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-800 dark:text-emerald-300 tabular-nums"
+        >
+          Valor sugerido automaticamente a partir da análise desta fatura ({{ formatCurrency(targetCard.analysisTotalAmount) }}).
+        </p>
+
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1.5">
             <label class="text-xs font-medium text-foreground">Valor em {{ periodLabel }}</label>

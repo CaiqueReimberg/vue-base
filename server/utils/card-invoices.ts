@@ -434,12 +434,15 @@ export async function listCardsWithMonthInvoices(userId: string, month?: string)
             .select({
               id: invoiceAnalyses.id,
               cardId: invoiceAnalyses.cardId,
+              cardName: invoiceAnalyses.cardName,
+              userId: invoiceAnalyses.userId,
+              totalAmount: invoiceAnalyses.totalAmount,
               itemsCount: invoiceAnalyses.itemsCount,
             })
             .from(invoiceAnalyses)
             .where(
               and(
-                inArray(invoiceAnalyses.cardId, cardIds),
+                inArray(invoiceAnalyses.userId, visibility.memberIds),
                 eq(invoiceAnalyses.referenceMonth, referenceMonth),
               ),
             ),
@@ -452,9 +455,25 @@ export async function listCardsWithMonthInvoices(userId: string, month?: string)
   const usersMap = await getPublicUsersMap(allUserIds)
 
   const invByCard = new Map(invRows.map((i) => [i.cardId, i]))
-  const analysisByCard = new Map(
-    analysisRows.filter((a) => a.cardId).map((a) => [a.cardId as string, a]),
-  )
+  const analysisByCard = new Map<string, (typeof analysisRows)[number]>()
+  for (const a of analysisRows) {
+    if (a.cardId) {
+      analysisByCard.set(a.cardId, a)
+    }
+  }
+  for (const c of cardRows) {
+    if (analysisByCard.has(c.id)) continue
+    const ownerName = usersMap.get(c.userId)?.name
+    const cardKey = resolveInvoiceCardKey(c.name, ownerName)
+    const fallbackMatch = analysisRows.find(
+      (a) =>
+        a.userId === c.userId &&
+        resolveInvoiceCardKey(a.cardName, ownerName) === cardKey,
+    )
+    if (fallbackMatch) {
+      analysisByCard.set(c.id, fallbackMatch)
+    }
+  }
 
   return cardRows
     .sort((a, b) => {
@@ -485,6 +504,7 @@ export async function listCardsWithMonthInvoices(userId: string, month?: string)
           : null,
         analysisId: analysis?.id ?? null,
         analysisItemsCount: analysis?.itemsCount ?? 0,
+        analysisTotalAmount: analysis ? roundMoney(Number(analysis.totalAmount || 0)) : null,
       }
     })
 }

@@ -23,6 +23,7 @@ export interface Card {
   monthInvoice?: CardMonthInvoice | null
   analysisId?: string | null
   analysisItemsCount?: number
+  analysisTotalAmount?: number | null
   deduplicated?: boolean
 }
 

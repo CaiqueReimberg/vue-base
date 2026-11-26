@@ -508,7 +508,11 @@ function selectCardInDrawer(cardId: string) {
   billName.value = card.name
   billDueDay.value = card.monthInvoice?.dueDay ?? card.dueDay
   billShared.value = Boolean(card.monthInvoice?.isShared ?? card.shareWithPartner)
-  billAmount.value = card.monthInvoice ? card.monthInvoice.amount : ''
+  billAmount.value = card.monthInvoice
+    ? card.monthInvoice.amount
+    : card.analysisTotalAmount && card.analysisTotalAmount > 0
+      ? card.analysisTotalAmount
+      : ''
 }
 
 function switchAddMode(mode: 'recurring' | 'card_invoice' | 'debt') {
@@ -1581,6 +1585,12 @@ async function handleRemovePending(item: DashboardPendingItem) {
               class="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-[11px] text-foreground tabular-nums"
             >
               Este cartão já possui fatura lançada em {{ periodLabel }} (<strong>{{ formatCurrency(selectedExistingCard.monthInvoice.amount) }}</strong>). Salvar agora vai apenas atualizar o valor sem duplicar.
+            </p>
+            <p
+              v-else-if="selectedExistingCard?.analysisTotalAmount"
+              class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-800 dark:text-emerald-300 tabular-nums"
+            >
+              Valor preenchido automaticamente com a análise desta fatura em {{ periodLabel }} (<strong>{{ formatCurrency(selectedExistingCard.analysisTotalAmount) }}</strong>).
             </p>
           </div>
 
