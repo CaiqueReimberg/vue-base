@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { recurringApi } from '@/api/recurring.api'
-import type { RecurringMonthlyItem } from '@/types/recurring'
+import type { RecurringMonthlyItem, RecurringPausedItem } from '@/types/recurring'
 import {
   billPaymentStatus,
   currentReferenceMonth,
@@ -11,6 +11,7 @@ import {
 export interface RecurringStoreState {
   referenceMonth: string
   items: RecurringMonthlyItem[]
+  pausedItems: RecurringPausedItem[]
   loading: boolean
   error: string | null
   togglingIds: Set<string>
@@ -20,6 +21,7 @@ export const useRecurringStore = defineStore('recurring', {
   state: (): RecurringStoreState => ({
     referenceMonth: currentReferenceMonth(),
     items: [],
+    pausedItems: [],
     loading: false,
     error: null,
     togglingIds: new Set(),
@@ -48,6 +50,7 @@ export const useRecurringStore = defineStore('recurring', {
         const res = await recurringApi.getMonthlyStatus(this.referenceMonth)
         this.referenceMonth = res.month
         this.items = res.data
+        this.pausedItems = res.pausedData ?? []
       } catch (e) {
         this.error = e instanceof Error ? e.message : 'Erro ao carregar contas fixas'
         throw e

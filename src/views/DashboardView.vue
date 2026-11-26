@@ -47,6 +47,7 @@ import {
   GraduationCap,
   Home,
   Landmark,
+  PauseCircle,
   Pencil,
   PiggyBank,
   Plus,
@@ -720,12 +721,53 @@ async function handleUnmarkPaid(item: DashboardPaidItem) {
   }
 }
 
+const recurringRemoveSheetOpen = ref(false)
+const pendingRecurringToManage = ref<DashboardPendingItem | null>(null)
+const managingRecurringRemove = ref(false)
+
 async function handleRemovePending(item: DashboardPendingItem) {
+  if (item.kind === 'recurring') {
+    pendingRecurringToManage.value = item
+    recurringRemoveSheetOpen.value = true
+    return
+  }
   try {
     await dashboardStore.removePendingItem(item)
     toastStore.success(`${item.title} removido.`)
   } catch (e) {
     toastStore.error(e instanceof Error ? e.message : 'Erro ao remover conta')
+  }
+}
+
+async function handleDashboardPauseRecurring() {
+  const item = pendingRecurringToManage.value
+  if (!item || managingRecurringRemove.value) return
+  managingRecurringRemove.value = true
+  try {
+    await dashboardStore.pauseRecurringItem(item)
+    recurringRemoveSheetOpen.value = false
+    pendingRecurringToManage.value = null
+    toastStore.success(`${item.title} pausada a partir de ${periodLabel.value} (histórico mantido).`)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao pausar conta fixa')
+  } finally {
+    managingRecurringRemove.value = false
+  }
+}
+
+async function handleDashboardDeleteRecurring() {
+  const item = pendingRecurringToManage.value
+  if (!item || managingRecurringRemove.value) return
+  managingRecurringRemove.value = true
+  try {
+    await dashboardStore.removePendingItem(item)
+    recurringRemoveSheetOpen.value = false
+    pendingRecurringToManage.value = null
+    toastStore.success(`${item.title} excluída permanentemente.`)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Erro ao excluir conta fixa')
+  } finally {
+    managingRecurringRemove.value = false
   }
 }
 </script>
@@ -1336,7 +1378,7 @@ async function handleRemovePending(item: DashboardPendingItem) {
                   v-if="(item.kind === 'recurring' || item.kind === 'transaction' || item.kind === 'invoice') && isAddedByMe(item)"
                   type="button"
                   class="hidden group-hover:inline-flex p-1 text-muted-foreground hover:text-red-500 transition-colors"
-                  title="Excluir conta"
+                  :title="item.kind === 'recurring' ? 'Pausar ou excluir conta fixa' : 'Excluir conta'"
                   @click="handleRemovePending(item)"
                 >
                   <Trash2 class="h-3.5 w-3.5" />
@@ -2008,6 +2050,67 @@ async function handleRemovePending(item: DashboardPendingItem) {
       :period-label="periodLabel"
       @saved="handleIncomeSaved"
     />
+
+    <!-- ============================================================ -->
+    <!-- DRAWER 6: PAUSAR OU EXCLUIR CONTA FIXA -->
+    <!-- ============================================================ -->
+    <Sheet
+      :open="recurringRemoveSheetOpen"
+      :title="pendingRecurringToManage ? `O que fazer com ${pendingRecurringToManage.title}?` : 'Gerenciar conta fixa'"
+      description="Escolha se deseja apenas pausar daqui em diante mantendo o histórico ou apagar de vez."
+      @update:open="recurringRemoveSheetOpen = $event"
+    >
+      <div v-if="pendingRecurringToManage" class="space-y-3">
+        <button
+          type="button"
+          class="flex w-full items-start gap-3.5 rounded-xl border border-emerald-500/35 bg-emerald-500/5 p-4 text-left transition-colors hover:bg-emerald-500/10 disabled:opacity-50"
+          :disabled="managingRecurringRemove"
+          @click="handleDashboardPauseRecurring"
+        >
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            <PauseCircle class="h-5 w-5" />
+          </div>
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm font-semibold text-foreground">
+                Pausar conta fixa (manter histórico)
+              </span>
+              <Badge variant="success" class="text-[10px] px-1.5 py-0">
+                Recomendado
+              </Badge>
+            </div>
+            <p class="text-xs text-muted-foreground leading-relaxed">
+              Deixa de cobrar em {{ periodLabel }} e nos próximos meses, mas preserva todos os pagamentos anteriores salvos no seu Histórico. Você pode retomar depois em Contas Fixas.
+            </p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          class="flex w-full items-start gap-3.5 rounded-xl border border-red-500/25 bg-red-500/5 p-4 text-left transition-colors hover:bg-red-500/10 disabled:opacity-50"
+          :disabled="managingRecurringRemove"
+          @click="handleDashboardDeleteRecurring"
+        >
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500/15 text-red-600 dark:text-red-400">
+            <Trash2 class="h-5 w-5" />
+          </div>
+          <div class="space-y-1">
+            <span class="text-sm font-semibold text-red-600 dark:text-red-400">
+              Excluir permanentemente de tudo
+            </span>
+            <p class="text-xs text-muted-foreground leading-relaxed">
+              Use apenas se cadastrou por engano: remove esta conta fixa e apaga também os pagamentos registrados nos meses passados.
+            </p>
+          </div>
+        </button>
+
+        <div class="flex justify-end pt-2">
+          <Button variant="outline" size="sm" @click="recurringRemoveSheetOpen = false">
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   </div>
 </template>
 

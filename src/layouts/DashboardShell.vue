@@ -83,6 +83,9 @@ function checkRouteModuleAccess(path: string) {
   } else if (path.startsWith('/agenda') && flags.agenda === false) {
     toastStore.error('O módulo de Agenda está bloqueado no momento.')
     router.replace('/')
+  } else if (path.startsWith('/notifications') && !authStore.telegramRemindersEnabled) {
+    toastStore.error('O módulo de Avisos no Telegram não está habilitado para sua conta.')
+    router.replace('/')
   }
 }
 
@@ -130,6 +133,8 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
     items.push({ label: 'Contas Fixas' })
   } else if (path.startsWith('/agenda')) {
     items.push({ label: 'Agenda de Vencimentos' })
+  } else if (path.startsWith('/notifications')) {
+    items.push({ label: 'Avisos no Telegram' })
   } else if (path.startsWith('/history')) {
     items.push({ label: 'Histórico' })
   } else if (path.startsWith('/goals')) {

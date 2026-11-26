@@ -830,6 +830,19 @@ export const useDashboardStore = defineStore('dashboard', {
       }
     },
 
+    async pauseRecurringItem(item: DashboardPendingItem) {
+      if (item.kind !== 'recurring') return null
+      if (this.actionLoadingIds.includes(item.id)) return null
+      this.actionLoadingIds.push(item.id)
+      try {
+        const res = await recurringApi.pause(item.referenceId, this.referenceMonth)
+        await this.fetchSummary(this.referenceMonth)
+        return res
+      } finally {
+        this.actionLoadingIds = this.actionLoadingIds.filter((id) => id !== item.id)
+      }
+    },
+
     async removePendingItem(item: DashboardPendingItem) {
       if (this.actionLoadingIds.includes(item.id)) return
       this.actionLoadingIds.push(item.id)

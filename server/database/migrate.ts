@@ -467,6 +467,55 @@ const MIGRATIONS: MigrationStep[] = [
         WHERE key = 'cards';
     `,
   },
+  {
+    id: '0016_add_telegram_notifications',
+    description: 'Adiciona sessao de avisos no Telegram com feature flag, vinculo de conta, preferencias e log de envios',
+    up: (s) => `
+      ALTER TABLE "${s}".users
+        ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT,
+        ADD COLUMN IF NOT EXISTS telegram_username TEXT,
+        ADD COLUMN IF NOT EXISTS telegram_linked_at TEXT,
+        ADD COLUMN IF NOT EXISTS telegram_link_token TEXT,
+        ADD COLUMN IF NOT EXISTS telegram_link_token_expires_at TEXT,
+        ADD COLUMN IF NOT EXISTS telegram_notify_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS telegram_days_before INTEGER NOT NULL DEFAULT 3,
+        ADD COLUMN IF NOT EXISTS telegram_notify_overdue BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS telegram_include_couple BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS telegram_last_sent_date TEXT;
+
+      UPDATE "${s}".users
+        SET telegram_enabled = TRUE
+        WHERE is_admin = TRUE OR is_premium = TRUE;
+
+      CREATE TABLE IF NOT EXISTS "${s}".telegram_notification_logs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES "${s}".users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        reference_date TEXT NOT NULL,
+        items_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        summary TEXT,
+        error_message TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_${s}_telegram_logs_user_created
+        ON "${s}".telegram_notification_logs(user_id, created_at DESC);
+
+      INSERT INTO "${s}".feature_flags (key, label, description, enabled, updated_at)
+      VALUES (
+        'telegram',
+        'Avisos no Telegram',
+        'Sessão de vínculo com Bot do Telegram e alertas diários de vencimento',
+        TRUE,
+        NOW()::text
+      )
+      ON CONFLICT (key) DO UPDATE
+        SET label = EXCLUDED.label,
+            description = EXCLUDED.description;
+    `,
+  },
 ]
 
 export const LAST_MIGRATION_ID = MIGRATIONS[MIGRATIONS.length - 1]?.id ?? ''

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import ConfirmModal from '@/components/ConfirmModal.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +12,7 @@ import { useAuthStore } from '@/stores/auth/auth.store'
 import { useRecurringStore } from '@/stores/recurring/recurring.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import { recurringApi } from '@/api/recurring.api'
-import type { RecurringKind, RecurringMonthlyItem } from '@/types/recurring'
+import type { RecurringKind, RecurringMonthlyItem, RecurringPausedItem } from '@/types/recurring'
 import { payerBadgeLabel, personShortName } from '@/utils/owner'
 import {
   currentReferenceMonth,
@@ -31,9 +30,11 @@ import {
   CreditCard,
   AlertCircle,
   Home,
+  PauseCircle,
   Pencil,
   Plus,
   Repeat,
+  RotateCcw,
   Sparkles,
   Trash2,
   Tv,
@@ -50,7 +51,12 @@ const hasPartner = computed(() => Boolean(authStore.profile?.partner))
 const myShortName = computed(() => personShortName(authStore.profile) || 'Você')
 const partnerShortName = computed(() => personShortName(authStore.profile?.partner) || 'Par')
 
-const { expenseItems, loading, referenceMonth } = storeToRefs(recurringStore)
+const { expenseItems, pausedItems, loading, referenceMonth } = storeToRefs(recurringStore)
+
+function isOwnRecurring(item: { owner?: { id: string } | null }): boolean {
+  if (!item.owner?.id || !authStore.currentUserId) return true
+  return item.owner.id === authStore.currentUserId
+}
 
 const month = computed(() => referenceMonth?.value || currentReferenceMonth())
 const periodLabel = computed(() => formatPeriodLabel(month.value))
@@ -79,9 +85,13 @@ const formShared = ref(false)
 const submitting = ref(false)
 const formError = ref('')
 
-// Modal de Exclusão
+// Gaveta de Pausar ou Excluir
 const removeOpen = ref(false)
 const itemToRemove = ref<RecurringMonthlyItem | null>(null)
+const processingRemoveAction = ref(false)
+const resumingId = ref<string | null>(null)
+const pausedToDelete = ref<RecurringPausedItem | null>(null)
+const deletePausedOpen = ref(false)
 
 const isEditing = computed(() => Boolean(editingId.value))
 
@@ -310,35 +320,76 @@ function closeRemove() {
   itemToRemove.value = null
 }
 
-async function confirmRemove() {
+async function handlePauseRecurring() {
   const item = itemToRemove.value
-  if (!item) return
-  closeRemove()
+  if (!item || processingRemoveAction.value) return
+  processingRemoveAction.value = true
+  try {
+    const res = await recurringApi.pause(item.id, month.value)
+    closeRemove()
+    toastStore.success(
+      res.keptCurrentMonthPaid
+        ? `${item.name} pausada para os próximos meses (histórico mantido).`
+        : `${item.name} pausada a partir de ${periodLabel.value} (histórico mantido).`,
+    )
+    await loadMonth(month.value)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Não foi possível pausar a conta fixa.')
+  } finally {
+    processingRemoveAction.value = false
+  }
+}
+
+async function confirmPermanentRemove() {
+  const item = itemToRemove.value
+  if (!item || processingRemoveAction.value) return
+  processingRemoveAction.value = true
   try {
     await recurringApi.delete(item.id)
-    toastStore.success(`${item.name} removida.`)
+    closeRemove()
+    toastStore.success(`${item.name} excluída permanentemente.`)
     await loadMonth(month.value)
   } catch {
-    toastStore.error('Não foi possível remover a conta fixa.')
+    toastStore.error('Não foi possível excluir a conta fixa.')
+  } finally {
+    processingRemoveAction.value = false
+  }
+}
+
+async function handleResumePaused(paused: RecurringPausedItem) {
+  if (resumingId.value) return
+  resumingId.value = paused.id
+  try {
+    await recurringApi.resume(paused.id, month.value)
+    toastStore.success(`${paused.name} retomada a partir de ${periodLabel.value}!`)
+    await loadMonth(month.value)
+  } catch (e) {
+    toastStore.error(e instanceof Error ? e.message : 'Não foi possível retomar a conta fixa.')
+  } finally {
+    resumingId.value = null
+  }
+}
+
+async function confirmDeletePaused() {
+  const target = pausedToDelete.value
+  if (!target || processingRemoveAction.value) return
+  processingRemoveAction.value = true
+  try {
+    await recurringApi.delete(target.id)
+    deletePausedOpen.value = false
+    pausedToDelete.value = null
+    toastStore.success(`${target.name} excluída permanentemente.`)
+    await loadMonth(month.value)
+  } catch {
+    toastStore.error('Não foi possível excluir a conta pausada.')
+  } finally {
+    processingRemoveAction.value = false
   }
 }
 </script>
 
 <template>
   <div class="mx-auto max-w-4xl px-4 py-8 sm:px-6 space-y-6">
-    <ConfirmModal
-      :open="removeOpen"
-      title="Remover conta fixa"
-      :message="
-        itemToRemove
-          ? `Deseja remover &quot;${itemToRemove.name}&quot; (${formatCurrency(itemToRemove.amount)}/mês) das suas contas mensais?`
-          : ''
-      "
-      confirm-label="Remover"
-      :danger="true"
-      @close="closeRemove"
-      @confirm="confirmRemove"
-    />
 
     <!-- Cabeçalho Limpo -->
     <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -617,6 +668,7 @@ async function confirmRemove() {
                 </Button>
 
                 <Button
+                  v-if="isOwnRecurring(item)"
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8 text-muted-foreground hover:text-foreground"
@@ -627,10 +679,22 @@ async function confirmRemove() {
                 </Button>
 
                 <Button
+                  v-if="isOwnRecurring(item)"
+                  variant="ghost"
+                  size="icon"
+                  class="h-8 w-8 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400"
+                  title="Pausar conta fixa mantendo o histórico"
+                  @click="openRemove(item)"
+                >
+                  <PauseCircle class="h-3.5 w-3.5" />
+                </Button>
+
+                <Button
+                  v-if="isOwnRecurring(item)"
                   variant="ghost"
                   size="icon"
                   class="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  title="Remover conta fixa"
+                  title="Pausar ou excluir conta fixa"
                   @click="openRemove(item)"
                 >
                   <Trash2 class="h-3.5 w-3.5" />
@@ -660,6 +724,162 @@ async function confirmRemove() {
         </Button>
       </CardContent>
     </Card>
+
+    <!-- Seção de Contas Fixas Pausadas (histórico preservado, prontas para retomar se voltar a ter a despesa) -->
+    <Card v-if="pausedItems.length > 0" class="border-border/80 bg-muted/15">
+      <CardHeader class="flex flex-row items-center justify-between border-b border-border py-3 px-5">
+        <div class="flex items-center gap-2">
+          <PauseCircle class="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <CardTitle class="text-sm font-semibold">
+            Contas Pausadas ({{ pausedItems.length }})
+          </CardTitle>
+        </div>
+        <span class="text-xs text-muted-foreground">
+          Histórico passado preservado · Não entram nas cobranças atuais
+        </span>
+      </CardHeader>
+
+      <CardContent class="p-0">
+        <ul class="divide-y divide-border" role="list">
+          <li
+            v-for="paused in pausedItems"
+            :key="paused.id"
+            class="flex flex-col justify-between gap-3 px-5 py-3.5 sm:flex-row sm:items-center"
+          >
+            <div class="min-w-0 space-y-0.5">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-semibold text-foreground truncate">
+                  {{ paused.name }}
+                </span>
+                <Badge variant="warning" class="text-[10px] px-1.5 py-0">
+                  Pausada
+                </Badge>
+                <Badge v-if="paused.isShared" variant="secondary" class="text-[10px] px-1.5 py-0">
+                  Casal
+                </Badge>
+              </div>
+              <p class="text-xs text-muted-foreground">
+                <span class="tabular-nums font-medium">{{ formatCurrency(paused.amount) }}</span>/mês
+                <template v-if="paused.pausedAfterMonth">
+                  · Encerrada após {{ formatPeriodLabel(paused.pausedAfterMonth) }}
+                </template>
+              </p>
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+              <Button
+                variant="outline"
+                size="xs"
+                class="gap-1.5"
+                :disabled="resumingId === paused.id"
+                @click="handleResumePaused(paused)"
+              >
+                <RotateCcw class="h-3.5 w-3.5 text-primary" />
+                <span>Retomar em {{ periodLabel }}</span>
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 text-muted-foreground hover:text-destructive"
+                title="Excluir permanentemente do histórico"
+                @click="pausedToDelete = paused; deletePausedOpen = true"
+              >
+                <Trash2 class="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </li>
+        </ul>
+      </CardContent>
+    </Card>
+
+    <!-- Gaveta Inferior: Escolher entre Pausar (mantendo histórico) ou Excluir Permanentemente -->
+    <Sheet
+      :open="removeOpen"
+      :title="itemToRemove ? `O que fazer com ${itemToRemove.name}?` : 'Gerenciar conta fixa'"
+      description="Escolha se deseja apenas encerrar as cobranças futuras mantendo o histórico ou apagar de vez."
+      @update:open="removeOpen = $event"
+    >
+      <div v-if="itemToRemove" class="space-y-3">
+        <!-- Opção 1: Pausar (Recomendado) -->
+        <button
+          type="button"
+          class="flex w-full items-start gap-3.5 rounded-xl border border-emerald-500/35 bg-emerald-500/5 p-4 text-left transition-colors hover:bg-emerald-500/10 disabled:opacity-50"
+          :disabled="processingRemoveAction"
+          @click="handlePauseRecurring"
+        >
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            <PauseCircle class="h-5 w-5" />
+          </div>
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm font-semibold text-foreground">
+                Pausar conta fixa (manter histórico)
+              </span>
+              <Badge variant="success" class="text-[10px] px-1.5 py-0">
+                Recomendado
+              </Badge>
+            </div>
+            <p class="text-xs text-muted-foreground leading-relaxed">
+              <template v-if="itemToRemove.paid">
+                Mantém o pagamento já feito em {{ periodLabel }} e todos os meses anteriores no Histórico, deixando de cobrar a partir do próximo mês.
+              </template>
+              <template v-else>
+                Deixa de cobrar já em {{ periodLabel }} e nos meses seguintes, mas preserva todos os pagamentos passados no seu Histórico (e você pode retomar quando quiser).
+              </template>
+            </p>
+          </div>
+        </button>
+
+        <!-- Opção 2: Excluir Permanentemente -->
+        <button
+          type="button"
+          class="flex w-full items-start gap-3.5 rounded-xl border border-red-500/25 bg-red-500/5 p-4 text-left transition-colors hover:bg-red-500/10 disabled:opacity-50"
+          :disabled="processingRemoveAction"
+          @click="confirmPermanentRemove"
+        >
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500/15 text-red-600 dark:text-red-400">
+            <Trash2 class="h-5 w-5" />
+          </div>
+          <div class="space-y-1">
+            <span class="text-sm font-semibold text-red-600 dark:text-red-400">
+              Excluir permanentemente de tudo
+            </span>
+            <p class="text-xs text-muted-foreground leading-relaxed">
+              Use apenas se cadastrou por engano: remove esta conta fixa e apaga também os pagamentos registrados nos meses passados.
+            </p>
+          </div>
+        </button>
+
+        <div class="flex justify-end pt-2">
+          <Button variant="outline" size="sm" @click="closeRemove">
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+
+    <!-- Gaveta Inferior: Excluir permanentemente conta já pausada -->
+    <Sheet
+      :open="deletePausedOpen"
+      :title="pausedToDelete ? `Excluir ${pausedToDelete.name} de vez?` : 'Excluir conta pausada'"
+      description="Isso apagará também os pagamentos antigos dessa conta nos meses anteriores."
+      @update:open="deletePausedOpen = $event"
+    >
+      <div class="flex justify-end gap-2 pt-2">
+        <Button variant="outline" size="sm" @click="deletePausedOpen = false">
+          Cancelar
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          :disabled="processingRemoveAction"
+          @click="confirmDeletePaused"
+        >
+          {{ processingRemoveAction ? 'Excluindo...' : 'Excluir permanentemente' }}
+        </Button>
+      </div>
+    </Sheet>
 
     <!-- Bottom Drawer (Sheet) para Cadastrar / Editar Conta Fixa -->
     <Sheet

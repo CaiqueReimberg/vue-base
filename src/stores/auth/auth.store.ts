@@ -61,6 +61,11 @@ export const useAuthStore = defineStore('auth', {
       return Boolean(globalEnabled && (state.profile?.invoiceAnalysisEnabled || state.profile?.isAdmin))
     },
 
+    telegramRemindersEnabled(state): boolean {
+      const globalEnabled = state.profile?.features?.telegram !== false
+      return Boolean(globalEnabled && (state.profile?.telegramEnabled || state.profile?.isAdmin))
+    },
+
     isAdmin(state): boolean {
       return Boolean(state.profile?.isAdmin)
     },
@@ -72,8 +77,9 @@ export const useAuthStore = defineStore('auth', {
           invoices: true,
           monthly_control: true,
           debts: true,
-          cards: false,
+          cards: true,
           agenda: true,
+          telegram: true,
         }
       )
     },

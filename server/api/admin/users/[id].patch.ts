@@ -17,6 +17,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{
     isPremium?: boolean
     invoiceAnalysisEnabled?: boolean
+    telegramEnabled?: boolean
     isAdmin?: boolean
   }>(event)
 
@@ -45,6 +46,11 @@ export default defineEventHandler(async (event) => {
       ? body.invoiceAnalysisEnabled
       : Boolean(targetUser.invoiceAnalysisEnabled)
 
+  const nextTelegramEnabled =
+    typeof body?.telegramEnabled === 'boolean'
+      ? body.telegramEnabled
+      : Boolean(targetUser.telegramEnabled)
+
   const nextIsAdmin =
     typeof body?.isAdmin === 'boolean' ? body.isAdmin : Boolean(targetUser.isAdmin)
 
@@ -55,6 +61,7 @@ export default defineEventHandler(async (event) => {
     .set({
       isPremium: nextIsPremium,
       invoiceAnalysisEnabled: nextInvoiceAnalysis,
+      telegramEnabled: nextTelegramEnabled,
       isAdmin: nextIsAdmin,
       updatedAt: now,
     })
@@ -67,6 +74,8 @@ export default defineEventHandler(async (event) => {
     hasPartner: Boolean(targetUser.familyId),
     isPremium: nextIsPremium,
     invoiceAnalysisEnabled: nextInvoiceAnalysis,
+    telegramEnabled: nextTelegramEnabled,
+    telegramConnected: Boolean(targetUser.telegramChatId),
     isAdmin: nextIsAdmin,
     createdAt: targetUser.createdAt,
     updatedAt: now,

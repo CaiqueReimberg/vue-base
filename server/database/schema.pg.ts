@@ -20,9 +20,20 @@ export const users = dualpactSchema.table('users', {
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
   isPremium: boolean('is_premium').notNull().default(false),
   invoiceAnalysisEnabled: boolean('invoice_analysis_enabled').notNull().default(false),
+  telegramEnabled: boolean('telegram_enabled').notNull().default(false),
   isAdmin: boolean('is_admin').notNull().default(false),
   soloMode: boolean('solo_mode').notNull().default(false),
   onboardingCompletedAt: text('onboarding_completed_at'),
+  telegramChatId: text('telegram_chat_id'),
+  telegramUsername: text('telegram_username'),
+  telegramLinkedAt: text('telegram_linked_at'),
+  telegramLinkToken: text('telegram_link_token'),
+  telegramLinkTokenExpiresAt: text('telegram_link_token_expires_at'),
+  telegramNotifyEnabled: boolean('telegram_notify_enabled').notNull().default(true),
+  telegramDaysBefore: integer('telegram_days_before').notNull().default(3),
+  telegramNotifyOverdue: boolean('telegram_notify_overdue').notNull().default(true),
+  telegramIncludeCouple: boolean('telegram_include_couple').notNull().default(true),
+  telegramLastSentDate: text('telegram_last_sent_date'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -289,4 +300,18 @@ export const incomeEntries = dualpactSchema.table('income_entries', {
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+})
+
+export const telegramNotificationLogs = dualpactSchema.table('telegram_notification_logs', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'cron' | 'test' | 'welcome'
+  referenceDate: text('reference_date').notNull(), // 'YYYY-MM-DD'
+  itemsCount: integer('items_count').notNull().default(0),
+  status: text('status').notNull(), // 'sent' | 'skipped' | 'failed'
+  summary: text('summary'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
 })

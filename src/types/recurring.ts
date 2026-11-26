@@ -40,7 +40,30 @@ export interface RecurringMonthlyItem {
   paidBy?: PublicOwner | null
 }
 
+export interface RecurringPausedItem {
+  id: string
+  name: string
+  amount: number
+  baseAmount?: number
+  isShared?: boolean
+  dueDay: number | null
+  kind: RecurringKind
+  transactionType: RecurringFlowType
+  endDate?: string | null
+  pausedAfterMonth: string | null
+  category?: { id: string; name: string } | null
+  owner?: PublicOwner | null
+}
+
+export interface RecurringPauseResponse {
+  id: string
+  endDate: string
+  pausedFromMonth: string
+  keptCurrentMonthPaid: boolean
+}
+
 export interface RecurringMonthlyStatusResponse {
   month: string
   data: RecurringMonthlyItem[]
+  pausedData?: RecurringPausedItem[]
 }

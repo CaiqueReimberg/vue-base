@@ -6,10 +6,12 @@ export default defineEventHandler(async (event) => {
 
   const pathname = event.path.split('?')[0].replace(/\/+$/, '')
 
-  // Rotas públicas, próprio perfil e administração (que já valida assertAdminUser)
+  // Rotas públicas, webhook externo, cronjobs, próprio perfil e administração (que já valida assertAdminUser)
   if (
     pathname === '/api/health' ||
     pathname.startsWith('/api/auth/') ||
+    pathname === '/api/telegram/webhook' ||
+    pathname.startsWith('/api/cron/') ||
     pathname === '/api/users/me' ||
     pathname.startsWith('/api/admin/')
   ) {

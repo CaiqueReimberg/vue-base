@@ -251,6 +251,18 @@ function createSqliteDb() {
       updated_at TEXT NOT NULL,
       UNIQUE(card_id, reference_month)
     );
+
+    CREATE TABLE IF NOT EXISTS telegram_notification_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      reference_date TEXT NOT NULL,
+      items_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      summary TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL
+    );
   `)
 
   const userCols = (sqlite.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map(
@@ -262,6 +274,9 @@ function createSqliteDb() {
   if (!userCols.includes('invoice_analysis_enabled')) {
     sqlite.exec('ALTER TABLE users ADD COLUMN invoice_analysis_enabled INTEGER NOT NULL DEFAULT 0;')
   }
+  if (!userCols.includes('telegram_enabled')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_enabled INTEGER NOT NULL DEFAULT 0;')
+  }
   if (!userCols.includes('is_admin')) {
     sqlite.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;')
   }
@@ -270,6 +285,36 @@ function createSqliteDb() {
   }
   if (!userCols.includes('onboarding_completed_at')) {
     sqlite.exec('ALTER TABLE users ADD COLUMN onboarding_completed_at TEXT;')
+  }
+  if (!userCols.includes('telegram_chat_id')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_chat_id TEXT;')
+  }
+  if (!userCols.includes('telegram_username')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_username TEXT;')
+  }
+  if (!userCols.includes('telegram_linked_at')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_linked_at TEXT;')
+  }
+  if (!userCols.includes('telegram_link_token')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_link_token TEXT;')
+  }
+  if (!userCols.includes('telegram_link_token_expires_at')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_link_token_expires_at TEXT;')
+  }
+  if (!userCols.includes('telegram_notify_enabled')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_notify_enabled INTEGER NOT NULL DEFAULT 1;')
+  }
+  if (!userCols.includes('telegram_days_before')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_days_before INTEGER NOT NULL DEFAULT 3;')
+  }
+  if (!userCols.includes('telegram_notify_overdue')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_notify_overdue INTEGER NOT NULL DEFAULT 1;')
+  }
+  if (!userCols.includes('telegram_include_couple')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_include_couple INTEGER NOT NULL DEFAULT 1;')
+  }
+  if (!userCols.includes('telegram_last_sent_date')) {
+    sqlite.exec('ALTER TABLE users ADD COLUMN telegram_last_sent_date TEXT;')
   }
 
   const famCols = (sqlite.prepare('PRAGMA table_info(families)').all() as Array<{ name: string }>).map(

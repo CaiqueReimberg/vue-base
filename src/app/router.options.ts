@@ -59,6 +59,11 @@ export default <RouterConfig>{
           component: () => import('@/views/AgendaView.vue'),
         },
         {
+          path: 'notifications',
+          name: 'notifications',
+          component: () => import('@/views/TelegramNotificationsView.vue'),
+        },
+        {
           path: 'expenses',
           name: 'expenses',
           component: () => import('@/views/ExpensesView.vue'),

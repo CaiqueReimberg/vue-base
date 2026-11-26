@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from '@/stores/auth/auth.store'
 import { useToastStore } from '@/stores/toast/toast.store'
 import {
+  BellRing,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -20,6 +21,7 @@ import {
   FileSpreadsheet,
   Lock,
   Search,
+  Send,
   ShieldCheck,
   SlidersHorizontal,
   Users,
@@ -170,6 +172,32 @@ async function toggleInvoiceFeature(user: AdminUserItem) {
   } catch (err) {
     toastStore.error(
       err instanceof Error ? err.message : 'Erro ao atualizar permissão do usuário.',
+    )
+  } finally {
+    updatingUserId.value = null
+  }
+}
+
+async function toggleTelegramFeature(user: AdminUserItem) {
+  if (updatingUserId.value) return
+  updatingUserId.value = user.id
+  const nextVal = !user.telegramEnabled
+  try {
+    const updated = await usersApi.updateAdminUserFlags(user.id, {
+      telegramEnabled: nextVal,
+    })
+    usersList.value = usersList.value.map((u) => (u.id === updated.id ? updated : u))
+    if (updated.id === authStore.currentUserId) {
+      await authStore.fetchProfile()
+    }
+    toastStore.success(
+      nextVal
+        ? `Avisos no Telegram liberados para ${updated.email}`
+        : `Avisos no Telegram desativados para ${updated.email}`,
+    )
+  } catch (err) {
+    toastStore.error(
+      err instanceof Error ? err.message : 'Erro ao atualizar permissão do Telegram.',
     )
   } finally {
     updatingUserId.value = null
@@ -389,6 +417,10 @@ onMounted(async () => {
                 <Badge v-if="u.hasPartner" variant="secondary" class="text-[10px] px-1.5 py-0">
                   Em casal
                 </Badge>
+                <Badge v-if="u.telegramConnected" variant="success" class="gap-1 text-[10px] px-1.5 py-0">
+                  <Send class="h-2.5 w-2.5" />
+                  <span>Telegram vinculado</span>
+                </Badge>
               </div>
               <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span v-if="u.name">{{ u.name }} ·</span>
@@ -448,6 +480,33 @@ onMounted(async () => {
                   "
                 >
                   <Check v-if="u.invoiceAnalysisEnabled" class="h-2.5 w-2.5" />
+                </span>
+              </button>
+
+              <!-- Feature Flag: Avisos no Telegram -->
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+                :class="
+                  u.telegramEnabled
+                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 font-semibold'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                "
+                :disabled="updatingUserId === u.id"
+                title="Libera a sessão de Avisos no Telegram para este usuário"
+                @click="toggleTelegramFeature(u)"
+              >
+                <BellRing class="h-3.5 w-3.5" />
+                <span>Telegram</span>
+                <span
+                  class="flex h-4 w-4 items-center justify-center rounded-full"
+                  :class="
+                    u.telegramEnabled
+                      ? 'bg-sky-600 text-white'
+                      : 'border border-muted-foreground/40'
+                  "
+                >
+                  <Check v-if="u.telegramEnabled" class="h-2.5 w-2.5" />
                 </span>
               </button>
 

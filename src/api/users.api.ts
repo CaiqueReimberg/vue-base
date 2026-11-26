@@ -6,6 +6,8 @@ export interface UserProfile {
   name: string | null
   isPremium: boolean
   invoiceAnalysisEnabled: boolean
+  telegramEnabled?: boolean
+  telegramConnected?: boolean
   isAdmin: boolean
   soloMode?: boolean
   onboardingCompletedAt?: string | null
@@ -31,6 +33,8 @@ export interface AdminUserItem {
   hasPartner: boolean
   isPremium: boolean
   invoiceAnalysisEnabled: boolean
+  telegramEnabled?: boolean
+  telegramConnected?: boolean
   isAdmin: boolean
   createdAt: string
   updatedAt: string
@@ -97,7 +101,12 @@ export const usersApi = {
 
   updateAdminUserFlags(
     userId: string,
-    payload: { isPremium?: boolean; invoiceAnalysisEnabled?: boolean; isAdmin?: boolean },
+    payload: {
+      isPremium?: boolean
+      invoiceAnalysisEnabled?: boolean
+      telegramEnabled?: boolean
+      isAdmin?: boolean
+    },
   ): Promise<AdminUserItem> {
     return request<AdminUserItem>(`/admin/users/${userId}`, {
       method: 'PATCH',

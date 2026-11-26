@@ -16,9 +16,20 @@ export const users = sqliteTable('users', {
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
   isPremium: integer('is_premium', { mode: 'boolean' }).notNull().default(false),
   invoiceAnalysisEnabled: integer('invoice_analysis_enabled', { mode: 'boolean' }).notNull().default(false),
+  telegramEnabled: integer('telegram_enabled', { mode: 'boolean' }).notNull().default(false),
   isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
   soloMode: integer('solo_mode', { mode: 'boolean' }).notNull().default(false),
   onboardingCompletedAt: text('onboarding_completed_at'),
+  telegramChatId: text('telegram_chat_id'),
+  telegramUsername: text('telegram_username'),
+  telegramLinkedAt: text('telegram_linked_at'),
+  telegramLinkToken: text('telegram_link_token'),
+  telegramLinkTokenExpiresAt: text('telegram_link_token_expires_at'),
+  telegramNotifyEnabled: integer('telegram_notify_enabled', { mode: 'boolean' }).notNull().default(true),
+  telegramDaysBefore: integer('telegram_days_before').notNull().default(3),
+  telegramNotifyOverdue: integer('telegram_notify_overdue', { mode: 'boolean' }).notNull().default(true),
+  telegramIncludeCouple: integer('telegram_include_couple', { mode: 'boolean' }).notNull().default(true),
+  telegramLastSentDate: text('telegram_last_sent_date'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -285,4 +296,18 @@ export const incomeEntries = sqliteTable('income_entries', {
   familyId: text('family_id').references(() => families.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+})
+
+export const telegramNotificationLogs = sqliteTable('telegram_notification_logs', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(),
+  referenceDate: text('reference_date').notNull(),
+  itemsCount: integer('items_count').notNull().default(0),
+  status: text('status').notNull(),
+  summary: text('summary'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
 })

@@ -36,6 +36,11 @@ export default defineNuxtConfig({
     jwtSecret: process.env.JWT_SECRET || 'dualpact-super-secret-jwt-key-dev',
     geminiApiKey: process.env.GEMINI_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME || '',
+    telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
+    cronSecret: process.env.CRON_SECRET || '',
+    appBaseUrl: process.env.APP_BASE_URL || '',
     public: {
       appVersion: pkg.version || '1.0.0',
     },

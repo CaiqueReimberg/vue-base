@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth/auth.store'
 import { storeToRefs } from 'pinia'
 import {
   BarChart3,
+  BellRing,
   Target,
   CalendarDays,
   ChevronLeft,
@@ -43,7 +44,8 @@ const appVersion = config.public.appVersion || '1.0.0'
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const { isDark, hideValues } = storeToRefs(themeStore)
-const { invoiceAnalysisEnabled, isAdmin, isPremium, featureFlags } = storeToRefs(authStore)
+const { invoiceAnalysisEnabled, telegramRemindersEnabled, isAdmin, isPremium, featureFlags } =
+  storeToRefs(authStore)
 
 onMounted(() => {
   if (!authStore.profileLoaded) {
@@ -58,6 +60,7 @@ interface NavItem {
   exact: boolean
   moduleKey: string | null
   requireInvoiceFlag: boolean
+  requireTelegramFlag?: boolean
   requireAdmin: boolean
 }
 
@@ -75,6 +78,7 @@ const rawNavGroups: NavGroup[] = [
       { to: '/', label: 'Início (Mês)', icon: LayoutDashboard, exact: true, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
       { to: '/incomes', label: 'Entradas do Mês', icon: TrendingUp, exact: false, moduleKey: null, requireInvoiceFlag: false, requireAdmin: false },
       { to: '/agenda', label: 'Agenda de Vencimentos', icon: CalendarDays, exact: false, moduleKey: 'agenda', requireInvoiceFlag: false, requireAdmin: false },
+      { to: '/notifications', label: 'Avisos no Telegram', icon: BellRing, exact: false, moduleKey: 'telegram', requireInvoiceFlag: false, requireTelegramFlag: true, requireAdmin: false },
     ],
   },
   {
@@ -114,6 +118,7 @@ const navGroups = computed(() =>
         if (!isPremium.value) return false
         if (item.moduleKey && featureFlags.value[item.moduleKey] === false) return false
         if (item.requireInvoiceFlag && !invoiceAnalysisEnabled.value) return false
+        if (item.requireTelegramFlag && !telegramRemindersEnabled.value) return false
         return true
       }),
     }))

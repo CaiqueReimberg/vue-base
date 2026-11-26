@@ -24,6 +24,7 @@ import {
 } from '@/utils/month'
 import {
   AlertCircle,
+  BellRing,
   Calendar,
   CalendarDays,
   Check,
@@ -371,36 +372,49 @@ onMounted(() => loadMonth(currentReferenceMonth()))
         </p>
       </div>
 
-      <div class="inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-2xs">
+      <div class="flex flex-wrap items-center gap-2">
         <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8 rounded-lg"
-          aria-label="Mês anterior"
-          @click="loadMonth(shiftReferenceMonth(referenceMonth, -1))"
+          v-if="authStore.telegramRemindersEnabled"
+          variant="outline"
+          size="sm"
+          class="gap-1.5"
+          @click="router.push('/notifications')"
         >
-          <ChevronLeft class="h-4 w-4" />
+          <BellRing class="h-3.5 w-3.5 text-primary" />
+          <span>Avisos no Telegram</span>
         </Button>
 
-        <button
-          type="button"
-          class="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-sm font-bold tracking-tight text-foreground hover:text-primary transition-colors"
-          title="Voltar para o mês atual"
-          @click="loadMonth(currentReferenceMonth())"
-        >
-          <Calendar class="h-3.5 w-3.5 shrink-0 text-primary" />
-          <span>{{ periodText }}</span>
-        </button>
+        <div class="inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-2xs">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8 rounded-lg"
+            aria-label="Mês anterior"
+            @click="loadMonth(shiftReferenceMonth(referenceMonth, -1))"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-8 w-8 rounded-lg"
-          aria-label="Próximo mês"
-          @click="loadMonth(shiftReferenceMonth(referenceMonth, 1))"
-        >
-          <ChevronRight class="h-4 w-4" />
-        </Button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-sm font-bold tracking-tight text-foreground hover:text-primary transition-colors"
+            title="Voltar para o mês atual"
+            @click="loadMonth(currentReferenceMonth())"
+          >
+            <Calendar class="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span>{{ periodText }}</span>
+          </button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8 rounded-lg"
+            aria-label="Próximo mês"
+            @click="loadMonth(shiftReferenceMonth(referenceMonth, 1))"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </header>
 

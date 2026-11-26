@@ -35,14 +35,20 @@ export const DEFAULT_FEATURE_FLAGS: Array<{
   },
   {
     key: 'cards',
-    label: 'Cartões de Crédito',
-    description: 'Cadastro manual de limites e cartões (módulo legado)',
-    enabled: false,
+    label: 'Cartões & Faturas',
+    description: 'Cadastro de cartões de crédito e lançamento mensal de faturas',
+    enabled: true,
   },
   {
     key: 'agenda',
     label: 'Agenda de Vencimentos',
     description: 'Calendário de vencimentos do mês',
+    enabled: true,
+  },
+  {
+    key: 'telegram',
+    label: 'Avisos no Telegram',
+    description: 'Sessão de vínculo com Bot do Telegram e alertas diários de vencimento',
     enabled: true,
   },
 ]
@@ -175,6 +181,8 @@ export async function getUserProfileResponse(userId: string) {
     name: user.name ?? null,
     isPremium: Boolean(user.isPremium),
     invoiceAnalysisEnabled: Boolean(user.invoiceAnalysisEnabled),
+    telegramEnabled: Boolean(user.telegramEnabled),
+    telegramConnected: Boolean(user.telegramChatId),
     isAdmin: Boolean(user.isAdmin),
     soloMode: Boolean(user.soloMode),
     onboardingCompletedAt: user.onboardingCompletedAt ?? null,
@@ -217,6 +225,19 @@ export async function assertInvoiceAnalysisEnabled(userId: string) {
       statusCode: 403,
       statusMessage: 'A funcionalidade de Análise de Faturas não está habilitada para este usuário.',
       data: { message: 'A funcionalidade de Análise de Faturas não está habilitada para este usuário.' },
+    })
+  }
+  return user
+}
+
+export async function assertTelegramFeatureEnabled(userId: string) {
+  await assertFeatureFlagEnabled('telegram', 'O módulo de Avisos no Telegram')
+  const user = await getUserOrThrow(userId)
+  if (!user.telegramEnabled && !user.isAdmin) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'A funcionalidade de Avisos no Telegram não está habilitada para este usuário.',
+      data: { message: 'A funcionalidade de Avisos no Telegram não está habilitada para este usuário.' },
     })
   }
   return user

@@ -26,3 +26,4 @@ export const invoiceAnalyses = active.invoiceAnalyses
 export const cardMonthlyInvoices = active.cardMonthlyInvoices
 export const incomeEntries = active.incomeEntries
 export const featureFlags = active.featureFlags
+export const telegramNotificationLogs = active.telegramNotificationLogs

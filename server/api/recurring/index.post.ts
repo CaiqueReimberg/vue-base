@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
         )
 
       const matched = userRecurrings.find(
-        (r) => resolveRecurringCardKey(r.name, user.name) === targetCardKey,
+        (r) => !r.endDate && resolveRecurringCardKey(r.name, user.name) === targetCardKey,
       )
 
       if (matched) {

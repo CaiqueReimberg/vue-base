@@ -1,6 +1,7 @@
 import type {
   RecurringCreateInput,
   RecurringMonthlyStatusResponse,
+  RecurringPauseResponse,
 } from '@/types/recurring'
 import { request } from './client'
 
@@ -53,6 +54,20 @@ export const recurringApi = {
   unmarkAsPaid(id: string, referenceMonth: string): Promise<void> {
     return request(`/recurring/${id}/pay/${encodeURIComponent(referenceMonth)}`, {
       method: 'DELETE',
+    })
+  },
+
+  pause(id: string, fromMonth?: string): Promise<RecurringPauseResponse> {
+    return request(`/recurring/${id}/pause`, {
+      method: 'POST',
+      body: JSON.stringify(fromMonth ? { fromMonth } : {}),
+    })
+  },
+
+  resume(id: string, fromMonth?: string): Promise<unknown> {
+    return request(`/recurring/${id}/resume`, {
+      method: 'POST',
+      body: JSON.stringify(fromMonth ? { fromMonth } : {}),
     })
   },
 
