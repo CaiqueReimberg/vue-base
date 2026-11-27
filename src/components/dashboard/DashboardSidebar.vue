@@ -141,7 +141,7 @@ function logout() {
 
 <template>
   <aside
-    class="sidebar border-r border-border bg-card text-card-foreground"
+    class="sidebar border-r border-border bg-sidebar text-card-foreground"
     :class="{
       'sidebar--collapsed': collapsed,
       'sidebar--mobile-open': mobileOpen,
@@ -193,7 +193,7 @@ function logout() {
                 class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors"
                 :class="
                   (item.exact ? isExactActive : isActive)
-                    ? 'bg-secondary text-foreground font-semibold shadow-2xs'
+                    ? 'bg-secondary text-foreground font-semibold shadow-2xs dark:bg-primary dark:text-primary-foreground dark:shadow-sm'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                 "
                 @click.prevent="navigate()"
@@ -201,7 +201,7 @@ function logout() {
                 <component
                   :is="item.icon"
                   class="h-4 w-4 shrink-0"
-                  :class="(item.exact ? isExactActive : isActive) ? 'text-primary' : ''"
+                  :class="(item.exact ? isExactActive : isActive) ? 'text-primary dark:text-primary-foreground' : ''"
                   aria-hidden="true"
                 />
                 <span v-show="mobileOpen || !collapsed" class="truncate">{{ item.label }}</span>
@@ -218,7 +218,7 @@ function logout() {
           class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors"
           :class="
             route.name === 'profile'
-              ? 'bg-secondary text-foreground font-semibold'
+              ? 'bg-secondary text-foreground font-semibold dark:bg-primary dark:text-primary-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground'
           "
         >

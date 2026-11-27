@@ -3,6 +3,7 @@ html[data-theme="light"] {
   /* shadcn-vue clean Zinc + Emerald design tokens (Light) */
   --background: 240 10% 98%;
   --foreground: 240 10% 3.9%;
+  --sidebar: 0 0% 100%;
   --card: 0 0% 100%;
   --card-foreground: 240 10% 3.9%;
   --popover: 0 0% 100%;
@@ -47,46 +48,48 @@ html[data-theme="light"] {
 
 html[data-theme="dark"],
 html.dark {
-  --background: 240 10% 6%;
-  --foreground: 0 0% 98%;
-  --card: 240 10% 9%;
-  --card-foreground: 0 0% 98%;
-  --popover: 240 10% 9%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 158 64% 45%;
-  --primary-foreground: 240 10% 3.9%;
-  --secondary: 240 4% 16%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 240 4% 15%;
-  --muted-foreground: 240 5% 65%;
-  --accent: 240 4% 16%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 55%;
+  /* Soft Slate Charcoal + Luminous Mint Emerald (inspired by modern SaaS dark UI) */
+  --sidebar: 210 13% 11.5%;
+  --background: 210 14% 13.8%;
+  --foreground: 210 20% 96.5%;
+  --card: 212 15% 18.8%;
+  --card-foreground: 210 20% 96.5%;
+  --popover: 212 15% 17.8%;
+  --popover-foreground: 210 20% 96.5%;
+  --primary: 145 72% 54%;
+  --primary-foreground: 150 35% 8.5%;
+  --secondary: 212 15% 23.8%;
+  --secondary-foreground: 210 20% 96.5%;
+  --muted: 212 15% 16.2%;
+  --muted-foreground: 213 14% 70%;
+  --accent: 212 15% 24.5%;
+  --accent-foreground: 210 20% 98%;
+  --destructive: 0 72% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 240 4% 18%;
-  --input: 240 4% 18%;
-  --ring: 158 64% 45%;
+  --border: 212 13% 25.5%;
+  --input: 212 14% 24%;
+  --ring: 145 72% 54%;
 
   --color-background: hsl(var(--background));
   --color-background-soft: hsl(var(--card));
   --color-background-mute: hsl(var(--muted));
   --color-border: hsl(var(--border));
-  --color-border-hover: hsl(240 4% 26%);
+  --color-border-hover: hsl(212 14% 33%);
   --color-heading: hsl(var(--foreground));
   --color-text: hsl(var(--foreground));
 
-  --dp-green: hsl(158, 64%, 45%);
-  --dp-green-soft: hsl(158, 35%, 14%);
-  --dp-green-mute: hsl(158, 30%, 18%);
-  --dp-yellow-bg: hsl(45, 40%, 16%);
-  --dp-yellow-border: hsl(45, 30%, 24%);
-  --dp-yellow-icon: hsl(45, 85%, 55%);
-  --dp-surface: hsl(240 4% 15%);
-  --dp-surface-hover: hsl(240 4% 20%);
-  --dp-border: hsl(240 4% 18%);
-  --dp-text-muted: hsl(240 5% 65%);
-  --dp-text-secondary: hsl(240 5% 84%);
-  --dp-text-primary: hsl(0 0% 98%);
+  --dp-green: hsl(145, 72%, 54%);
+  --dp-green-soft: hsl(148, 35%, 19%);
+  --dp-green-mute: hsl(148, 30%, 23%);
+  --dp-yellow-bg: hsl(45, 42%, 20%);
+  --dp-yellow-border: hsl(45, 35%, 29%);
+  --dp-yellow-icon: hsl(45, 90%, 60%);
+  --dp-surface: hsl(212 15% 21%);
+  --dp-surface-hover: hsl(212 15% 25.5%);
+  --dp-border: hsl(212 13% 25.5%);
+  --dp-text-muted: hsl(213 14% 70%);
+  --dp-text-secondary: hsl(212 18% 86%);
+  --dp-text-primary: hsl(210 20% 96.5%);
 }
 
 *,

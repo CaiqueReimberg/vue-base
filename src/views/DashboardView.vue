@@ -996,38 +996,43 @@ async function handleDashboardDeleteRecurring() {
 
           <!-- Bloco 4: Livre pra gastar -->
           <div
-            class="flex flex-col justify-between rounded-xl border p-3 sm:p-4"
+            class="flex flex-col justify-between rounded-xl border bg-background p-3 sm:p-4 transition-colors"
             :class="
               freeToSpendAmount >= 0
-                ? 'border-emerald-500/30 bg-emerald-500/10'
-                : 'border-red-500/30 bg-red-500/10'
+                ? 'border-emerald-500/30 bg-emerald-500/[0.04] dark:border-primary/30 dark:bg-background'
+                : 'border-rose-500/30 bg-rose-500/[0.04] dark:border-rose-400/25 dark:bg-background'
             "
           >
             <div class="flex items-center justify-between gap-1">
-              <span
-                class="text-[11px] sm:text-xs font-semibold uppercase tracking-wide truncate"
-                :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
-              >
+              <span class="text-[11px] sm:text-xs font-medium text-muted-foreground truncate">
                 Livre pra gastar
               </span>
               <Wallet
-                class="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0"
-                :class="freeToSpendAmount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'"
+                class="h-3.5 w-3.5 shrink-0"
+                :class="
+                  freeToSpendAmount >= 0
+                    ? 'text-emerald-600 dark:text-primary'
+                    : 'text-rose-600 dark:text-rose-400'
+                "
               />
             </div>
             <div
-              class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-extrabold tracking-tight tabular-nums"
-              :class="freeToSpendAmount >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'"
+              class="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight tabular-nums"
+              :class="
+                freeToSpendAmount >= 0
+                  ? 'text-emerald-700 dark:text-primary'
+                  : 'text-rose-600 dark:text-rose-400'
+              "
             >
               {{ formatCurrency(freeToSpendAmount) }}
             </div>
             <span
               v-if="freeToSpendAmount > 0"
-              class="mt-1 text-[10px] sm:text-[11px] font-medium text-emerald-700/80 dark:text-emerald-300/80 truncate tabular-nums"
+              class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate tabular-nums"
             >
               ~ {{ formatCurrency(freePerWeekAmount) }}/sem
             </span>
-            <span v-else class="mt-1 text-[10px] sm:text-[11px] text-red-600/90 truncate">
+            <span v-else class="mt-1 text-[10px] sm:text-[11px] text-muted-foreground truncate">
               Ajuste ganhos ou meta
             </span>
           </div>
@@ -1104,7 +1109,7 @@ async function handleDashboardDeleteRecurring() {
                 <span class="text-[11px] text-muted-foreground block">Livre no mês</span>
                 <strong
                   class="font-bold tabular-nums"
-                  :class="freeToSpendAmount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'"
+                  :class="freeToSpendAmount >= 0 ? 'text-emerald-600 dark:text-primary' : 'text-rose-600 dark:text-rose-400'"
                 >
                   {{ formatCurrency(freeToSpendAmount) }}
                 </strong>
@@ -1139,7 +1144,7 @@ async function handleDashboardDeleteRecurring() {
                 <span class="text-[11px] text-muted-foreground block">Livre no mês</span>
                 <strong
                   class="font-bold tabular-nums"
-                  :class="partnerOverview.freeBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'"
+                  :class="partnerOverview.freeBalance >= 0 ? 'text-emerald-600 dark:text-primary' : 'text-rose-600 dark:text-rose-400'"
                 >
                   {{ formatCurrency(partnerOverview.freeBalance) }}
                 </strong>
